@@ -3,7 +3,8 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.23)
 PROJECT(finalHope VERSION 0.0.2 LANGUAGES CXX C)
 
 ADD_EXECUTABLE(fhope src/fhope-main.cpp
-                     src/setu.cpp)
+                     src/setup.cpp
+                     src/vertex.cpp)
 
 TARGET_INCLUDE_DIRECTORIES(fhope PUBLIC include)
 

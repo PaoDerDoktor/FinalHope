@@ -1,46 +1,90 @@
 #pragma once
 
 #include <string>
+#include <tuple>
+#include <array>
 #include <vector>
 #include <optional>
 #include <iostream>
 #include <set>
+#include <fstream>
+#include <sstream>
+#include <streambuf>
 
 #include <glad/vulkan.h>
 #include <GLFW/glfw3.h>
+#include <shaderc/shaderc.hpp>
 
-
+#include "vertex.hpp"
 
 namespace fhope {
     /***********************
      ** GLOBALS CONSTANTS **
      ***********************/
 
-    inline constexpr std::string_view ENGINE_NAME = "FinalHope"; // Name of the engine
+    inline constexpr const char *ENGINE_NAME = "FinalHope"; // Name of the engine
     inline constexpr std::tuple<uint32_t, uint32_t, uint32_t> ENGINE_VERSION = {0, 0, 1}; // Current engine version
+
+    inline constexpr std::array<const char *, 1> ENGINE_REQUIRED_DEVICE_EXTENSIONS = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    inline constexpr std::array<const char *, 1> ENGINE_REQUIRED_VALIDATION_LAYERS = { "VK_LAYER_KHRONOS_validation" };
+
+    inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+    inline constexpr std::array<Vertex2D, 3> EXAMPLE_VERTICES = {
+        Vertex2D{.position=glm::vec2{ 0.0f, -0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}},
+        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}},
+        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}}
+    };
 
     /****************
      ** STRUCTURES **
      ****************/
-    
-    struct VulkanQueueSetup {
-        std::optional<uint32_t> graphicsQueueIndex = std::nullopt;
-        std::optional<uint32_t> presentQueueIndex  = std::nullopt;
 
-        float graphicsPriority = 1.0f;
-        float presentPriority  = 1.0f;
+    struct QueueSetup {
+        std::optional<uint32_t> graphicsIndex = std::nullopt;
+        std::optional<uint32_t> presentIndex  = std::nullopt;
+
+        std::vector<float> priorities;
+
+        bool is_complete() const;
     };
 
-    struct VulkanSwapChainSetup {
-        std::optional<VkSurfaceCapabilitiesKHR> swapChainCapabilities;
-        std::vector<VkSurfaceFormatKHR> swapChainFormats;
-        std::vector<VkPresentModeKHR> swapChainPresentModes;
+    struct SwapChainSupport {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkSurfaceFormatKHR> formats;
+        std::vector<VkPresentModeKHR> presentModes;
     };
-    
-    /**
-     * @brief Group of values used as a setup fore a vulkan instance
-     */
-    struct VulkanInstanceSetup {
+
+    struct SwapChainConfig {
+        VkSurfaceFormatKHR surfaceFormat;
+        VkPresentModeKHR   presentMode;
+        VkExtent2D         extent;
+
+        uint32_t imageCount;
+    };
+
+    struct GraphicsPipelineConfig {
+        std::string vertexShaderFilename;
+        std::string fragmentShaderFilename;
+
+        VkPipelineLayout pipelineLayout;
+        VkRenderPass renderPass;
+
+        VkPipeline pipeline;
+    };
+
+    struct BaseSyncObjects {
+        std::vector<VkSemaphore> imageAvailableSemaphores;
+        std::vector<VkSemaphore> renderFinishedSemaphores;
+        std::vector<VkFence>     inFlightFences;
+    };
+
+    struct WrappedBuffer {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+    };
+
+    struct InstanceSetup {
         VkInstance instance = VK_NULL_HANDLE; // Vulkan instance
         std::optional<VkDebugUtilsMessengerEXT> debugMessenger = std::nullopt; // Debugger of the instance
 
@@ -50,10 +94,33 @@ namespace fhope {
 
         std::optional<VkSurfaceKHR> surface = std::nullopt;
 
-        VulkanQueueSetup queues = {};
-        VulkanSwapChainSetup swapChain = {};
-    };
+        std::optional<QueueSetup> queues = std::nullopt;
 
+        std::optional<SwapChainSupport> swapChainSupport = std::nullopt;
+        
+        std::optional<VkQueue> graphicsQueue;
+        std::optional<VkQueue> presentQueue;
+
+        std::optional<SwapChainConfig> swapChainConfig;
+
+        std::optional<VkSwapchainKHR> swapChain;
+        std::vector<VkImage>          swapChainImages;
+        std::vector<VkImageView>      swapChainImageViews;
+
+        std::optional<GraphicsPipelineConfig> graphicsPipelineConfig;
+
+        std::vector<VkFramebuffer> swapChainFramebuffers;
+
+        std::optional<VkCommandPool> commandPool;
+
+        std::optional<WrappedBuffer> vertexBuffer;
+
+        std::vector<VkCommandBuffer> commandBuffers;
+
+        std::optional<BaseSyncObjects> syncObjects;
+
+        uint32_t currentFrame = 0;
+    };
 
     /***************
      ** CALLBACKS **
@@ -78,6 +145,8 @@ namespace fhope {
      */
     void terminate_dependencies();
 
+    InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
+
     /**
      * @brief Prepares and returns an instance and it's setup
      * 
@@ -86,62 +155,59 @@ namespace fhope {
      * @param debug Wether ot not debug mode is on
      * @return VulkanInstanceSetup The vulkan instances and required companion values
      */
-    VulkanInstanceSetup init_instance(std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, bool debug=true);
+    InstanceSetup create_instance(std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion);
 
-    //TODO: Implement more checks for physical device suitability
+    VkSurfaceKHR get_surface_from_window(const InstanceSetup &setup, GLFWwindow *source);
 
-    /**
-     * @brief Checks wether or not a given physical device is suitable to use considering given requirements
-     * 
-     * @param device The physical device to check
-     * @param possibleTypes The types of physical device we can accept as suitable
-     * @return true if the physical device is suitable
-     * @return false if the physical device isn't suitable
-     */
-    bool is_physical_device_suitable(VkPhysicalDevice device, std::vector<VkPhysicalDeviceType> possibleTypes);
+    std::optional<VkPhysicalDevice> autopick_physical_device(const InstanceSetup &setup);
 
-    /**
-     * @brief Scores a given physical device
-     * 
-     * @param device The device to score
-     * @return int64_t An integer representing the expected performances of the given physical device
-     */
-    int64_t score_physical_device(VkPhysicalDevice device);
+    bool is_physical_device_suitable(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
 
-    /**
-     * @brief Automatically chooses a physical device from every one a given instance has access to
-     * 
-     * @param instance The instance to automatically choose a physical device for
-     * @return std::optional<VkPhysicalDevice> The best physical device available for the given instance, if any has been deemed suitable
-     */
-    std::optional<VkPhysicalDevice> autopick_physical_device(VulkanInstanceSetup setup);
+    int32_t score_physical_device(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    bool check_physical_device_extension_support(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    QueueSetup find_queue_families(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    SwapChainSupport check_swap_chain_support(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    VkDevice create_logical_device(InstanceSetup *setup);
+
+    SwapChainConfig prepare_swap_chain_config(const InstanceSetup &setup, GLFWwindow *window);
+
+    VkSwapchainKHR create_swap_chain(const InstanceSetup &setup, GLFWwindow *window);
     
-    /**
-     * @brief Find queues for a given vulkan instance setup in-place
-     * 
-     * @param setup The setup to populate queues for
-     */
-    void find_queues(VulkanInstanceSetup *setup);
+    std::vector<VkImage> retrieve_swap_chain_images(const InstanceSetup &setup);
 
-    /**
-     * @brief Queries the swap chain support of a given setup and populates it with the info
-     * 
-     * @param setup The stup to query/populate swap chain support info for
-     */
-    void populate_swap_chain_support(VulkanInstanceSetup *setup);
+    std::vector<VkImageView> create_swap_chain_image_views(const InstanceSetup &setup);
 
-    /**
-     * @brief Create a logical device object considering a given instance setup
-     * @param setup the instance setup
-     * 
-     * @return VkDevice The created logical device
-     */
-    VkDevice create_logical_device(const VulkanInstanceSetup &setup);
+    shaderc::SpvCompilationResult compile_shader(const std::string &filename, const shaderc_shader_kind &shaderKind);
 
-    /**
-     * @brief Cleans a setup by shutting down it's components
-     * 
-     * @param setup The setup to shut down
-     */
-    void clean_setup(VulkanInstanceSetup setup);
+    VkShaderModule create_shader_module(const InstanceSetup &setup, const shaderc::SpvCompilationResult &compiledShader);
+    
+    VkRenderPass create_render_pass(const InstanceSetup &setup);
+
+    GraphicsPipelineConfig create_graphics_pipeline(const InstanceSetup &setup, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
+
+    std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
+
+    VkCommandPool create_command_pool(const InstanceSetup &setup);
+
+    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices);
+    
+    std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup);
+
+    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex);
+
+    BaseSyncObjects create_base_sync_objects(const InstanceSetup &setup);
+
+    void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
+
+    void cleanup_swap_chain(const InstanceSetup &setup);
+
+    void recreate_swap_chain(InstanceSetup *setup, GLFWwindow *window);
+
+    uint32_t find_memory_type(const VkPhysicalDevice &device, uint32_t typeFilter, const VkMemoryPropertyFlags &properties);
+
+    void clean_setup(const InstanceSetup &setup);
 }

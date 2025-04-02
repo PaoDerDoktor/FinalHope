@@ -13,7 +13,7 @@
 
 #include <glm/glm.hpp>
 
-#include "setu.hpp"
+#include "setup.hpp"
 
 static VKAPI_ATTR VkBool32 debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void *pUserData) {
     std::cerr << "Validation Layer : " << pCallbackData->pMessage << std::endl;
@@ -34,9 +34,10 @@ int main(int argc, char const *argv[]) {
         std::cout << e.what() << std::endl;
     }
 
+    size_t currentFrame(0);
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        fhope::draw_frame(setup);
+        fhope::draw_frame(&setup, window, &currentFrame);
     }
 
     vkDeviceWaitIdle(setup.logicalDevice.value());
