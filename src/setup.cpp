@@ -899,17 +899,13 @@ namespace fhope {
 
 
 
-    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices) {
-        if (!setup.logicalDevice.has_value()) {
-            throw std::runtime_error("Tried to create a vertex buffer without providing a logical device in the setup");
-        }
-
+    WrappedBuffer create_buffer(const InstanceSetup &setup, VkDeviceSize sizeInBytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
         WrappedBuffer newBuffer;
         
         VkBufferCreateInfo bufferCreateInfo{};
         bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferCreateInfo.size = sizeof(vertices[0]) * vertices.size();
-        bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferCreateInfo.size = sizeInBytes;
+        bufferCreateInfo.usage = usage;
         
         const std::set<uint32_t> qs { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value(), setup.queues.value().transferIndex.value() };
         const std::vector<uint32_t> qsv(qs.begin(), qs.end());
@@ -932,7 +928,7 @@ namespace fhope {
         VkMemoryAllocateInfo bufferAllocateInfo{};
         bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         bufferAllocateInfo.allocationSize = memoryRequirements.size;
-        bufferAllocateInfo.memoryTypeIndex = find_memory_type(setup.physicalDevice.value(), memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        bufferAllocateInfo.memoryTypeIndex = find_memory_type(setup.physicalDevice.value(), memoryRequirements.memoryTypeBits, properties);
 
         if (vkAllocateMemory(setup.logicalDevice.value(), &bufferAllocateInfo, nullptr, &newBuffer.memory) != VK_SUCCESS) {
             throw std::runtime_error("Couldn't allocate buffer memory.");
@@ -940,11 +936,81 @@ namespace fhope {
 
         vkBindBufferMemory(setup.logicalDevice.value(), newBuffer.buffer, newBuffer.memory, 0);
 
-        void *data;
-        vkMapMemory(setup.logicalDevice.value(), newBuffer.memory, 0, bufferCreateInfo.size, 0, &data);
-        memcpy_s(data, bufferCreateInfo.size, vertices.data(), vertices.size()*sizeof(vertices[0]));
-        vkUnmapMemory(setup.logicalDevice.value(), newBuffer.memory);
+        newBuffer.sizeInBytes = sizeInBytes;
 
+        return newBuffer;
+    }
+
+
+
+    void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to copy a buffer without providing a logical device in the setup.");
+        }
+
+        if (!setup.commandPools.has_value()) {
+            throw std::runtime_error("Tried to copy a buffer without providing command pools in the setup.");
+        }
+
+        if (!setup.transferQueue.has_value()) {
+            throw std::runtime_error("Tried to copy a buffer without providing a transfer queue in the setup.");
+        }
+
+        VkCommandBufferAllocateInfo bufferAllocateInfo{};
+        bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        bufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        bufferAllocateInfo.commandPool = setup.commandPools.value().transfer;
+        bufferAllocateInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer;
+        vkAllocateCommandBuffers(setup.logicalDevice.value(), &bufferAllocateInfo, &commandBuffer);
+
+        VkCommandBufferBeginInfo bufferBeginInfo{};
+        bufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(commandBuffer, &bufferBeginInfo);
+
+        VkBufferCopy bufferCopy{};
+        bufferCopy.srcOffset = 0;
+        bufferCopy.dstOffset = 0;
+        bufferCopy.size = std::min(source.sizeInBytes, dest->sizeInBytes);
+        vkCmdCopyBuffer(commandBuffer, source.buffer, dest->buffer, 1, &bufferCopy);
+
+        vkEndCommandBuffer(commandBuffer);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        vkQueueSubmit(setup.transferQueue.value(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(setup.transferQueue.value());
+
+        vkFreeCommandBuffers(setup.logicalDevice.value(), setup.commandPools.value().transfer, 1, &commandBuffer);
+    }
+
+
+
+    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a vertex buffer without providing a logical device in the setup");
+        }
+
+        WrappedBuffer stagingBuffer = create_buffer(setup, vertices.size()*sizeof(Vertex2D), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+        void *data;
+        vkMapMemory(setup.logicalDevice.value(), stagingBuffer.memory, 0, stagingBuffer.sizeInBytes, 0, &data);
+            memcpy_s(data, stagingBuffer.sizeInBytes, vertices.data(), stagingBuffer.sizeInBytes);
+        vkUnmapMemory(setup.logicalDevice.value(), stagingBuffer.memory);
+
+        WrappedBuffer newBuffer = create_buffer(setup, stagingBuffer.sizeInBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        copy_buffer(setup, stagingBuffer, &newBuffer);
+
+        vkDestroyBuffer(setup.logicalDevice.value(), stagingBuffer.buffer, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), stagingBuffer.memory, nullptr);
+        
         return newBuffer;
     }
 

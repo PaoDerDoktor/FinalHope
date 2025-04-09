@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <streambuf>
+#include <cmath>
 
 #include <glad/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -83,6 +84,7 @@ namespace fhope {
     struct WrappedBuffer {
         VkBuffer buffer;
         VkDeviceMemory memory;
+        VkDeviceSize sizeInBytes;
     };
 
 
@@ -200,6 +202,10 @@ namespace fhope {
     std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
 
     CommandPools create_command_pool(const InstanceSetup &setup);
+
+    WrappedBuffer create_buffer(const InstanceSetup &setup, VkDeviceSize sizeInBytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+
+    void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest);
 
     WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices);
     
