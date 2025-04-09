@@ -5,7 +5,7 @@
 
 namespace fhope {
     bool QueueSetup::is_complete() const {
-        return (graphicsIndex.has_value() && presentIndex.has_value());
+        return (graphicsIndex.has_value() && presentIndex.has_value() && transferIndex.has_value());
     }
 
 
@@ -63,6 +63,9 @@ namespace fhope {
         vkGetDeviceQueue(newSetup.logicalDevice.value(), newSetup.queues.value().presentIndex.value(), 0, &q);
         newSetup.presentQueue.emplace(q);
 
+        vkGetDeviceQueue(newSetup.logicalDevice.value(), newSetup.queues.value().transferIndex.value(), 0, &q);
+        newSetup.transferQueue.emplace(q);
+
         // Getting a swap chain
         newSetup.swapChainSupport.emplace(check_swap_chain_support(newSetup, newSetup.physicalDevice.value()));
         
@@ -78,7 +81,7 @@ namespace fhope {
 
         newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
 
-        newSetup.commandPool.emplace(create_command_pool(newSetup));
+        newSetup.commandPools.emplace(create_command_pool(newSetup));
 
         newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex2D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
 
@@ -265,6 +268,10 @@ namespace fhope {
 
 
     QueueSetup find_queue_families(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice) {
+        if (!setup.surface.has_value()) {
+            throw std::runtime_error("Tried to find suitable queue families without specifying a surface in setup.");
+        }
+
         QueueSetup queues{};
 
         uint32_t queueFamilyCount;
@@ -279,8 +286,8 @@ namespace fhope {
                 queues.graphicsIndex = i;
             }
 
-            if (!setup.surface.has_value()) {
-                throw std::runtime_error("Tried to find suitable queue families without specifying a surface in setup.");
+            if ((properties.queueFlags & VK_QUEUE_TRANSFER_BIT) && !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+                queues.transferIndex = i;
             }
 
             VkBool32 presentSupport;
@@ -293,6 +300,10 @@ namespace fhope {
             if (queues.is_complete()) {
                 break;
             }
+        }
+
+        if (!queues.transferIndex.has_value()) {
+            queues.transferIndex = queues.graphicsIndex.value();
         }
 
         return queues;
@@ -333,7 +344,7 @@ namespace fhope {
             throw std::runtime_error("tried to create a logical device without specifying any queues in the setup.");
         }
 
-        std::set<uint32_t> uniqueQueues = { setup->queues.value().graphicsIndex.value(), setup->queues.value().presentIndex.value() };
+        std::set<uint32_t> uniqueQueues = { setup->queues.value().graphicsIndex.value(), setup->queues.value().presentIndex.value(), setup->queues.value().transferIndex.value() };
         setup->queues.value().priorities.resize(uniqueQueues.size(), 1.0f);
 
         std::vector<VkDeviceQueueCreateInfo> queuesToCreate;
@@ -456,11 +467,12 @@ namespace fhope {
         swapChainCreateInfo.imageArrayLayers = 1;
         swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         
-        const uint32_t qs[] = { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value() };
-        if (setup.queues.value().graphicsIndex != setup.queues.value().presentIndex) {
+        const std::set<uint32_t> qs { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value(), setup.queues.value().transferIndex.value() };
+        const std::vector<uint32_t> qsv(qs.begin(), qs.end());
+        if (qs.size() > 1) {
             swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-            swapChainCreateInfo.queueFamilyIndexCount = 2;
-            swapChainCreateInfo.pQueueFamilyIndices = &qs[0];
+            swapChainCreateInfo.queueFamilyIndexCount = qsv.size();
+            swapChainCreateInfo.pQueueFamilyIndices = qsv.data();
         } else {
             swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
             swapChainCreateInfo.queueFamilyIndexCount = 0; // Optional
@@ -849,7 +861,7 @@ namespace fhope {
 
 
 
-    VkCommandPool create_command_pool(const InstanceSetup &setup) {
+    CommandPools create_command_pool(const InstanceSetup &setup) {
         if (!setup.queues.has_value()) {
             throw std::runtime_error("Tried to create a command pool without providing queues in the setup.");
         }
@@ -862,17 +874,27 @@ namespace fhope {
             throw std::runtime_error("Tried to create a command pool without providing a logical device in the setup.");
         }
 
-        VkCommandPoolCreateInfo commandPoolCreateInfo{};
-        commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        commandPoolCreateInfo.queueFamilyIndex = setup.queues.value().graphicsIndex.value();
+        CommandPools newCommandPools;
 
-        VkCommandPool newCommandPool;
-        if (vkCreateCommandPool(setup.logicalDevice.value(), &commandPoolCreateInfo, nullptr, &newCommandPool) != VK_SUCCESS) {
-            throw std::runtime_error("Couldn't create command pool.");
+        VkCommandPoolCreateInfo graphicsCommandPoolCreateInfo{};
+        graphicsCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        graphicsCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        graphicsCommandPoolCreateInfo.queueFamilyIndex = setup.queues.value().graphicsIndex.value();
+
+        if (vkCreateCommandPool(setup.logicalDevice.value(), &graphicsCommandPoolCreateInfo, nullptr, &newCommandPools.graphics) != VK_SUCCESS) {
+            throw std::runtime_error("Couldn't create graphics command pool.");
         }
 
-        return newCommandPool;
+        VkCommandPoolCreateInfo transferCommandPoolCreateInfo{};
+        transferCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        transferCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        transferCommandPoolCreateInfo.queueFamilyIndex = setup.queues.value().transferIndex.value();
+
+        if (vkCreateCommandPool(setup.logicalDevice.value(), &transferCommandPoolCreateInfo, nullptr, &newCommandPools.transfer) != VK_SUCCESS) {
+            throw std::runtime_error("Couldn't create transfer command pool.");
+        }
+
+        return newCommandPools;
     }
 
 
@@ -888,7 +910,17 @@ namespace fhope {
         bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferCreateInfo.size = sizeof(vertices[0]) * vertices.size();
         bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        
+        const std::set<uint32_t> qs { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value(), setup.queues.value().transferIndex.value() };
+        const std::vector<uint32_t> qsv(qs.begin(), qs.end());
+        
+        if (qs.size() != 1) {
+            bufferCreateInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+            bufferCreateInfo.queueFamilyIndexCount = qsv.size();
+            bufferCreateInfo.pQueueFamilyIndices = qsv.data();
+        } else{
+            bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        }
 
         if (vkCreateBuffer(setup.logicalDevice.value(), &bufferCreateInfo, nullptr, &newBuffer.buffer) != VK_SUCCESS) {
             throw std::runtime_error("Could not create vertex buffer.");
@@ -923,15 +955,15 @@ namespace fhope {
             throw std::runtime_error("Tried to create a command buffer without providing a logical device in the setup.");
         }
 
-        if (!setup.commandPool.has_value()) {
-            throw std::runtime_error("Tried to create a command buffer without providing a command pool in the buffer.");
+        if (!setup.commandPools.has_value()) {
+            throw std::runtime_error("Tried to create a command buffer without providing command pools in the buffer.");
         }
 
         std::vector<VkCommandBuffer> newCommandBuffers(MAX_FRAMES_IN_FLIGHT);
 
         VkCommandBufferAllocateInfo commandBufferAllocationInfo{};
         commandBufferAllocationInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        commandBufferAllocationInfo.commandPool = setup.commandPool.value();
+        commandBufferAllocationInfo.commandPool = setup.commandPools.value().graphics;
         commandBufferAllocationInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         commandBufferAllocationInfo.commandBufferCount = static_cast<uint32_t>(newCommandBuffers.size());
 
@@ -1185,7 +1217,8 @@ namespace fhope {
             vkDestroyFence(setup.logicalDevice.value(), fence, nullptr);
         }
 
-        vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPool.value(), nullptr);
+        vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPools.value().graphics, nullptr);
+        vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPools.value().transfer, nullptr);
 
         cleanup_swap_chain(setup);
 

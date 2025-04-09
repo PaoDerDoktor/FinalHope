@@ -43,6 +43,7 @@ namespace fhope {
     struct QueueSetup {
         std::optional<uint32_t> graphicsIndex = std::nullopt;
         std::optional<uint32_t> presentIndex  = std::nullopt;
+        std::optional<uint32_t> transferIndex = std::nullopt;
 
         std::vector<float> priorities;
 
@@ -84,6 +85,12 @@ namespace fhope {
         VkDeviceMemory memory;
     };
 
+
+    struct CommandPools {
+        VkCommandPool graphics;
+        VkCommandPool transfer;
+    };
+
     struct InstanceSetup {
         VkInstance instance = VK_NULL_HANDLE; // Vulkan instance
         std::optional<VkDebugUtilsMessengerEXT> debugMessenger = std::nullopt; // Debugger of the instance
@@ -100,6 +107,7 @@ namespace fhope {
         
         std::optional<VkQueue> graphicsQueue;
         std::optional<VkQueue> presentQueue;
+        std::optional<VkQueue> transferQueue;
 
         std::optional<SwapChainConfig> swapChainConfig;
 
@@ -111,7 +119,7 @@ namespace fhope {
 
         std::vector<VkFramebuffer> swapChainFramebuffers;
 
-        std::optional<VkCommandPool> commandPool;
+        std::optional<CommandPools> commandPools;
 
         std::optional<WrappedBuffer> vertexBuffer;
 
@@ -191,7 +199,7 @@ namespace fhope {
 
     std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
 
-    VkCommandPool create_command_pool(const InstanceSetup &setup);
+    CommandPools create_command_pool(const InstanceSetup &setup);
 
     WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices);
     
