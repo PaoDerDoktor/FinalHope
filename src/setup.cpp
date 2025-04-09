@@ -85,6 +85,8 @@ namespace fhope {
 
         newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex2D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
 
+        newSetup.indexBuffer.emplace(create_index_buffer(newSetup, std::vector<uint16_t>(EXAMPLE_INDICES.begin(), EXAMPLE_INDICES.end())));
+
         newSetup.commandBuffers = create_command_buffers(newSetup);
 
         newSetup.syncObjects.emplace(create_base_sync_objects(newSetup));
@@ -1015,6 +1017,30 @@ namespace fhope {
     }
 
 
+
+    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create an index buffer without providing a logical device in the setup.");
+        }
+
+        WrappedBuffer stagingBuffer = create_buffer(setup, indices.size()*sizeof(uint16_t), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+        void *data;
+        vkMapMemory(setup.logicalDevice.value(), stagingBuffer.memory, 0, stagingBuffer.sizeInBytes, 0, &data);
+            memcpy_s(data, stagingBuffer.sizeInBytes, indices.data(), stagingBuffer.sizeInBytes);
+        vkUnmapMemory(setup.logicalDevice.value(), stagingBuffer.memory);
+
+        WrappedBuffer newBuffer = create_buffer(setup, stagingBuffer.sizeInBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        copy_buffer(setup, stagingBuffer, &newBuffer);
+
+        vkDestroyBuffer(setup.logicalDevice.value(), stagingBuffer.buffer, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), stagingBuffer.memory, nullptr);
+        
+        return newBuffer;
+    }
+
+
     
     std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup) {
         if (!setup.logicalDevice.has_value()) {
@@ -1055,6 +1081,10 @@ namespace fhope {
             throw std::runtime_error("Tried to record a command buffer without providing a vertex buffer in the setup.");
         }
 
+        if (!setup.indexBuffer.has_value()) {
+            throw std::runtime_error("Tried to record a command buffer without providing an index buffer in the setup.");
+        }
+
         VkCommandBufferBeginInfo commandBufferBeginInfo{};
         commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -1082,6 +1112,8 @@ namespace fhope {
 
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffers[0], &offsets[0]);
 
+        vkCmdBindIndexBuffer(commandBuffer, setup.indexBuffer.value().buffer, 0, VK_INDEX_TYPE_UINT16);
+
         // TODO: avoid rpeating it again by storing them somewhere ?
             VkViewport viewport{};
             viewport.x = 0.0f;
@@ -1098,8 +1130,8 @@ namespace fhope {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         // END TODO
 
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(EXAMPLE_VERTICES.size()), 1, 0, 0);
-
+        vkCmdDrawIndexed(commandBuffer, EXAMPLE_INDICES.size(), 1, 0, 0, 0);
+    
         vkCmdEndRenderPass(commandBuffer);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1287,6 +1319,9 @@ namespace fhope {
         vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPools.value().transfer, nullptr);
 
         cleanup_swap_chain(setup);
+
+        vkDestroyBuffer(setup.logicalDevice.value(), setup.indexBuffer.value().buffer, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), setup.indexBuffer.value().memory, nullptr);
 
         vkDestroyBuffer(setup.logicalDevice.value(), setup.vertexBuffer.value().buffer, nullptr);
         vkFreeMemory(setup.logicalDevice.value(), setup.vertexBuffer.value().memory, nullptr);

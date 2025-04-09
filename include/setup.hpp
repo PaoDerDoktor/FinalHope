@@ -31,11 +31,14 @@ namespace fhope {
 
     inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
-    inline constexpr std::array<Vertex2D, 3> EXAMPLE_VERTICES = {
-        Vertex2D{.position=glm::vec2{ 0.0f, -0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}},
-        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}},
-        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}}
+    inline constexpr std::array<Vertex2D, 4> EXAMPLE_VERTICES = {
+        Vertex2D{.position=glm::vec2{-0.5f, -0.5f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}},
+        Vertex2D{.position=glm::vec2{ 0.5f, -0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}},
+        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}},
+        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}},
     };
+
+    inline constexpr std::array<uint16_t, 6> EXAMPLE_INDICES = {0, 1, 2, 2, 3, 0};
 
     /****************
      ** STRUCTURES **
@@ -125,6 +128,8 @@ namespace fhope {
 
         std::optional<WrappedBuffer> vertexBuffer;
 
+        std::optional<WrappedBuffer> indexBuffer;
+
         std::vector<VkCommandBuffer> commandBuffers;
 
         std::optional<BaseSyncObjects> syncObjects;
@@ -208,6 +213,8 @@ namespace fhope {
     void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest);
 
     WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices);
+
+    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices);
     
     std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup);
 
