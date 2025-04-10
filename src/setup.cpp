@@ -2,6 +2,9 @@
 
 #include <limits>
 #include <algorithm>
+#include <chrono>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace fhope {
     bool QueueSetup::is_complete() const {
@@ -77,6 +80,8 @@ namespace fhope {
 
         newSetup.swapChainImageViews = create_swap_chain_image_views(newSetup);
 
+        newSetup.uniformLayout.emplace(create_descriptor_set_layout(newSetup));
+        
         newSetup.graphicsPipelineConfig.emplace(create_graphics_pipeline(newSetup, vertexShaderFilename, fragmentShaderFilename));
 
         newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
@@ -86,6 +91,12 @@ namespace fhope {
         newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex2D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
 
         newSetup.indexBuffer.emplace(create_index_buffer(newSetup, std::vector<uint16_t>(EXAMPLE_INDICES.begin(), EXAMPLE_INDICES.end())));
+
+        newSetup.uniformBuffers = create_uniform_buffers(newSetup);
+
+        newSetup.descriptorPool.emplace(create_descriptor_pool(newSetup));
+
+        newSetup.descriptorSets = create_descriptor_sets(newSetup);
 
         newSetup.commandBuffers = create_command_buffers(newSetup);
 
@@ -673,6 +684,35 @@ namespace fhope {
     }
 
 
+    
+    // TODO : Rename/generalize this function maybe ? to emphasize on vertex uniform ?
+    VkDescriptorSetLayout create_descriptor_set_layout(const InstanceSetup &setup) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a descriptor set layout without providingg a logical device in the setup.");
+        }
+        
+        VkDescriptorSetLayoutBinding descriptorBinding{};
+        descriptorBinding.binding = 0;
+        descriptorBinding.descriptorCount = 1;
+        descriptorBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        descriptorBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutCreateInfo descriptorCreateInfo{};
+        descriptorCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorCreateInfo.bindingCount = 1;
+        descriptorCreateInfo.pBindings = &descriptorBinding;
+
+        VkDescriptorSetLayout newDescriptorSetLayout;
+
+        if (vkCreateDescriptorSetLayout(setup.logicalDevice.value(), &descriptorCreateInfo, nullptr, &newDescriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create descriptor set layout.");
+        }
+
+        return newDescriptorSetLayout;
+    }
+
+
 
     GraphicsPipelineConfig create_graphics_pipeline(const InstanceSetup &setup, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename) {
         shaderc::SpvCompilationResult vertexCompiled   = compile_shader(vertexShaderFilename,   shaderc_shader_kind::shaderc_vertex_shader);
@@ -747,7 +787,7 @@ namespace fhope {
         rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizationStateCreateInfo.lineWidth = 1.0f;
         rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizationStateCreateInfo.depthBiasEnable = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo{};
@@ -772,10 +812,15 @@ namespace fhope {
         colorBlendStateCreateInfo.pAttachments = &colorBlendAttachmentState;
 
         VkPipelineLayout pipelineLayout;
+
+        if (!setup.uniformLayout.has_value()) {
+            throw std::runtime_error("Tried to create a pipeline layout without providing a descriptor set layout in the setup.");
+        }
         
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
         pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutCreateInfo.setLayoutCount = 0;
+        pipelineLayoutCreateInfo.setLayoutCount = 1;
+        pipelineLayoutCreateInfo.pSetLayouts = &setup.uniformLayout.value();
 
         if (!setup.logicalDevice.value()) {
             throw std::runtime_error("Tried to create a pipeline layout without providing a logical device in the setup.");
@@ -1041,6 +1086,90 @@ namespace fhope {
     }
 
 
+
+    std::vector<WrappedBuffer> create_uniform_buffers(const InstanceSetup &setup) {
+        std::vector<WrappedBuffer> newUniformBuffers(MAX_FRAMES_IN_FLIGHT);
+
+        VkDeviceSize bufferSizeInBytes = sizeof(UniformBufferObject);
+
+        for (size_t i = 0; i != newUniformBuffers.size(); ++i) {
+            newUniformBuffers[i] = create_buffer(setup, bufferSizeInBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+            void *bufferMappingLocation;
+            vkMapMemory(setup.logicalDevice.value(), newUniformBuffers[i].memory, 0, newUniformBuffers[i].sizeInBytes, 0, &bufferMappingLocation);
+
+            newUniformBuffers[i].mapping.emplace(bufferMappingLocation);
+        }
+
+        return newUniformBuffers;
+    }
+
+
+
+    VkDescriptorPool create_descriptor_pool(const InstanceSetup &setup) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a descriptor pool without providing a logical device in the setup.");
+        }
+        
+        VkDescriptorPoolSize poolSize{};
+        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+        VkDescriptorPoolCreateInfo poolCreateInfo{};
+        poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolCreateInfo.poolSizeCount = 1;
+        poolCreateInfo.pPoolSizes = &poolSize;
+        poolCreateInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        VkDescriptorPool newDescriptorPool;
+        if (vkCreateDescriptorPool(setup.logicalDevice.value(), &poolCreateInfo, nullptr, &newDescriptorPool) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create descriptor pool.");
+        }
+
+        return newDescriptorPool;
+    }
+
+
+
+    std::vector<VkDescriptorSet> create_descriptor_sets(const InstanceSetup &setup) {
+        std::vector<VkDescriptorSetLayout> newLayouts(MAX_FRAMES_IN_FLIGHT, setup.uniformLayout.value());
+        
+        VkDescriptorSetAllocateInfo descriptorSetAllocateInfo{};
+        descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        descriptorSetAllocateInfo.descriptorPool = setup.descriptorPool.value();
+        descriptorSetAllocateInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        descriptorSetAllocateInfo.pSetLayouts = newLayouts.data();
+        
+        std::vector<VkDescriptorSet> newDescriptorSets(MAX_FRAMES_IN_FLIGHT);
+
+        if (vkAllocateDescriptorSets(setup.logicalDevice.value(), &descriptorSetAllocateInfo, newDescriptorSets.data()) != VK_SUCCESS) {
+            throw std::runtime_error("Couldn't allocate descriptor sets.");
+        }
+
+        for (size_t i = 0; i != newDescriptorSets.size(); ++i) {
+            VkDescriptorBufferInfo descriptorBufferInfo{};
+            descriptorBufferInfo.buffer = setup.uniformBuffers[i].buffer;
+            descriptorBufferInfo.offset = 0;
+            descriptorBufferInfo.range  = sizeof(UniformBufferObject);
+
+            VkWriteDescriptorSet writeInfo{};
+            writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeInfo.dstSet = newDescriptorSets[i];
+            writeInfo.dstBinding = 0;
+            writeInfo.dstArrayElement = 0;
+
+            writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writeInfo.descriptorCount = 1;
+            
+            writeInfo.pBufferInfo = &descriptorBufferInfo;
+            
+            vkUpdateDescriptorSets(setup.logicalDevice.value(), 1, &writeInfo, 0, nullptr);
+        }
+
+        return newDescriptorSets;
+    }
+
+
     
     std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup) {
         if (!setup.logicalDevice.has_value()) {
@@ -1068,7 +1197,7 @@ namespace fhope {
 
 
 
-    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex) {
+    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex, size_t currentFrame) {
         if (!setup.graphicsPipelineConfig.has_value()) {
             throw std::runtime_error("Tried to record a command buffer without providing a graphics pipeline to the setup.");
         }
@@ -1130,6 +1259,8 @@ namespace fhope {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         // END TODO
 
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, setup.graphicsPipelineConfig.value().pipelineLayout, 0, 1, &setup.descriptorSets[currentFrame], 0, nullptr);
+
         vkCmdDrawIndexed(commandBuffer, EXAMPLE_INDICES.size(), 1, 0, 0, 0);
     
         vkCmdEndRenderPass(commandBuffer);
@@ -1178,6 +1309,37 @@ namespace fhope {
 
 
 
+    void update_uniform_buffer(const InstanceSetup &setup, size_t frame) {
+        if (!setup.swapChainConfig.has_value()) {
+            throw std::runtime_error("Tried to update a uniform buffer without providing a swapchain config in the setup.");
+        }
+
+        if (setup.uniformBuffers.size() <= frame) {
+            throw std::runtime_error("Tried to update a uniform buffer too far in the array provided in the setup");
+        }
+
+        if (!setup.uniformBuffers[frame].mapping.has_value()) {
+            throw std::runtime_error("Tried to update a uniform buffer without providing it's memory mapping in the setup.");
+        }
+
+        static auto startTime = std::chrono::high_resolution_clock::now();
+
+        auto currentTime = std::chrono::high_resolution_clock::now();
+
+        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        UniformBufferObject ubo{};
+        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.projection = glm::perspective(glm::radians(45.0f), setup.swapChainConfig.value().extent.width / (float)setup.swapChainConfig.value().extent.height, 0.01f, 99999.9f);
+
+        ubo.projection[1][1] *= -1;
+
+        memcpy_s(setup.uniformBuffers[frame].mapping.value(), setup.uniformBuffers[frame].sizeInBytes, &ubo, sizeof(ubo));
+    }
+
+
+
     void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame) {
         if (!setup->logicalDevice.has_value()) {
             throw std::runtime_error("Tried to draw a frame without providing a logical device in the setup.");
@@ -1208,18 +1370,21 @@ namespace fhope {
             throw std::runtime_error("Failed to acquire next swapchain image.");
         }
 
+        update_uniform_buffer(*setup, *currentFrame);
+        
         vkResetFences(setup->logicalDevice.value(), 1, &setup->syncObjects.value().inFlightFences[*currentFrame]);
 
         vkResetCommandBuffer(setup->commandBuffers[*currentFrame], NULL);
 
-        record_command_buffer(*setup, setup->commandBuffers[*currentFrame], imageIndex);
-
-
+        record_command_buffer(*setup, setup->commandBuffers[*currentFrame], imageIndex, *currentFrame);
+        
+        
         VkSemaphore          waitSemaphores[] = { setup->syncObjects.value().imageAvailableSemaphores[*currentFrame] };
         VkPipelineStageFlags waitStages[]     = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-
+        
         VkSemaphore signalSemaphore[] = { setup->syncObjects.value().renderFinishedSemaphores[*currentFrame] };
-
+        
+        
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount = 1;
@@ -1319,6 +1484,15 @@ namespace fhope {
         vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPools.value().transfer, nullptr);
 
         cleanup_swap_chain(setup);
+        
+        for (const WrappedBuffer &uniformBuffer : setup.uniformBuffers) {
+            vkDestroyBuffer(setup.logicalDevice.value(), uniformBuffer.buffer, nullptr);
+            vkFreeMemory(setup.logicalDevice.value(), uniformBuffer.memory, nullptr);
+        }
+
+        vkDestroyDescriptorPool(setup.logicalDevice.value(), setup.descriptorPool.value(), nullptr);
+
+        vkDestroyDescriptorSetLayout(setup.logicalDevice.value(), setup.uniformLayout.value(), nullptr);
 
         vkDestroyBuffer(setup.logicalDevice.value(), setup.indexBuffer.value().buffer, nullptr);
         vkFreeMemory(setup.logicalDevice.value(), setup.indexBuffer.value().memory, nullptr);

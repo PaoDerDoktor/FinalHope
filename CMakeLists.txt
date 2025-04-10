@@ -4,7 +4,8 @@ PROJECT(finalHope VERSION 0.0.2 LANGUAGES CXX C)
 
 ADD_EXECUTABLE(fhope src/fhope-main.cpp
                      src/setup.cpp
-                     src/vertex.cpp)
+                     src/vertex.cpp
+                     src/mvp.cpp)
 
 TARGET_INCLUDE_DIRECTORIES(fhope PUBLIC include)
 

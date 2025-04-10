@@ -15,6 +15,7 @@
 #include <glad/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <shaderc/shaderc.hpp>
+#include <glm/glm.hpp>
 
 #include "vertex.hpp"
 
@@ -43,6 +44,12 @@ namespace fhope {
     /****************
      ** STRUCTURES **
      ****************/
+
+    struct UniformBufferObject {
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 projection;
+    };
 
     struct QueueSetup {
         std::optional<uint32_t> graphicsIndex = std::nullopt;
@@ -88,6 +95,7 @@ namespace fhope {
         VkBuffer buffer;
         VkDeviceMemory memory;
         VkDeviceSize sizeInBytes;
+        std::optional<void*> mapping;
     };
 
 
@@ -120,6 +128,8 @@ namespace fhope {
         std::vector<VkImage>          swapChainImages;
         std::vector<VkImageView>      swapChainImageViews;
 
+        std::optional<VkDescriptorSetLayout> uniformLayout;
+
         std::optional<GraphicsPipelineConfig> graphicsPipelineConfig;
 
         std::vector<VkFramebuffer> swapChainFramebuffers;
@@ -129,6 +139,11 @@ namespace fhope {
         std::optional<WrappedBuffer> vertexBuffer;
 
         std::optional<WrappedBuffer> indexBuffer;
+
+        std::vector<WrappedBuffer> uniformBuffers;
+
+        std::optional<VkDescriptorPool> descriptorPool;
+        std::vector<VkDescriptorSet>    descriptorSets;
 
         std::vector<VkCommandBuffer> commandBuffers;
 
@@ -202,6 +217,8 @@ namespace fhope {
     
     VkRenderPass create_render_pass(const InstanceSetup &setup);
 
+    VkDescriptorSetLayout create_descriptor_set_layout(const InstanceSetup &setup);
+
     GraphicsPipelineConfig create_graphics_pipeline(const InstanceSetup &setup, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
 
     std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
@@ -216,11 +233,19 @@ namespace fhope {
 
     WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices);
     
+    std::vector<WrappedBuffer> create_uniform_buffers(const InstanceSetup &setup);
+
+    VkDescriptorPool create_descriptor_pool(const InstanceSetup &setup);
+
+    std::vector<VkDescriptorSet> create_descriptor_sets(const InstanceSetup &setup);
+
     std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup);
 
-    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex);
+    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex, size_t currentFrame);
 
     BaseSyncObjects create_base_sync_objects(const InstanceSetup &setup);
+
+    void update_uniform_buffer(const InstanceSetup &setup, size_t frame);
 
     void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
 
