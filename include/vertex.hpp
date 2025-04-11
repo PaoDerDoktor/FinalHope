@@ -9,6 +9,7 @@ namespace fhope {
     struct Vertex2D {
         glm::vec2 position;
         glm::vec3 color;
+        glm::vec2 uv;
 
 
         static constexpr VkVertexInputBindingDescription get_binding_description() {
@@ -21,8 +22,8 @@ namespace fhope {
         }
 
 
-        static constexpr std::array<VkVertexInputAttributeDescription, 2> get_attribute_description() {
-            std::array<VkVertexInputAttributeDescription, 2> attributeDescription;
+        static constexpr std::array<VkVertexInputAttributeDescription, 3> get_attribute_description() {
+            std::array<VkVertexInputAttributeDescription, 3> attributeDescription;
             // POSITION
             attributeDescription[0].binding  = 0;
             attributeDescription[0].location = 0;
@@ -34,6 +35,12 @@ namespace fhope {
             attributeDescription[1].location = 1;
             attributeDescription[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
             attributeDescription[1].offset   = offsetof(Vertex2D, color);
+
+            // UV
+            attributeDescription[2].binding  = 0;
+            attributeDescription[2].location = 2;
+            attributeDescription[2].format   = VK_FORMAT_R32G32_SFLOAT;
+            attributeDescription[2].offset   = offsetof(Vertex2D, uv);
 
             return attributeDescription;
         }

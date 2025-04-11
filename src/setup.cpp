@@ -83,17 +83,22 @@ namespace fhope {
         newSetup.uniformLayout.emplace(create_descriptor_set_layout(newSetup));
         
         newSetup.graphicsPipelineConfig.emplace(create_graphics_pipeline(newSetup, vertexShaderFilename, fragmentShaderFilename));
-
+        
         newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
-
+        
         newSetup.commandPools.emplace(create_command_pool(newSetup));
+        
+        newSetup.texture.emplace(create_texture_image(newSetup, "textures/floral-shoppe-cover.png"));
+        newSetup.textureView.emplace(create_texture_image_view(newSetup, newSetup.texture.value(), VK_FORMAT_R8G8B8A8_SRGB));
+        
+        newSetup.textureSampler.emplace(create_texture_sampler(newSetup));
 
         newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex2D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
 
         newSetup.indexBuffer.emplace(create_index_buffer(newSetup, std::vector<uint16_t>(EXAMPLE_INDICES.begin(), EXAMPLE_INDICES.end())));
-
+        
         newSetup.uniformBuffers = create_uniform_buffers(newSetup);
-
+        
         newSetup.descriptorPool.emplace(create_descriptor_pool(newSetup));
 
         newSetup.descriptorSets = create_descriptor_sets(newSetup);
@@ -243,7 +248,10 @@ namespace fhope {
             adequateSwapChain = !swapChain.formats.empty() && !swapChain.presentModes.empty();
         }
 
-        return queues.is_complete() && extensions && adequateSwapChain;
+        VkPhysicalDeviceFeatures physicalFeatures;
+        vkGetPhysicalDeviceFeatures(physicalDevice, &physicalFeatures);
+
+        return queues.is_complete() && extensions && adequateSwapChain && physicalFeatures.samplerAnisotropy;
     }
 
 
@@ -372,6 +380,7 @@ namespace fhope {
         }
 
         VkPhysicalDeviceFeatures physicalDeviceFeatures{};
+        physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 
         VkDeviceCreateInfo logicalDeviceCreateInfo{};
         logicalDeviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -691,17 +700,26 @@ namespace fhope {
             throw std::runtime_error("Tried to create a descriptor set layout without providingg a logical device in the setup.");
         }
         
-        VkDescriptorSetLayoutBinding descriptorBinding{};
-        descriptorBinding.binding = 0;
-        descriptorBinding.descriptorCount = 1;
-        descriptorBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        descriptorBinding.pImmutableSamplers = nullptr;
+        VkDescriptorSetLayoutBinding uboBinding{};
+        uboBinding.binding = 0;
+        uboBinding.descriptorCount = 1;
+        uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        uboBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding samplerBinding{};
+        samplerBinding.binding = 1;
+        samplerBinding.descriptorCount = 1;
+        samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        samplerBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 2> descriptorBindings = { uboBinding, samplerBinding };
 
         VkDescriptorSetLayoutCreateInfo descriptorCreateInfo{};
         descriptorCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        descriptorCreateInfo.bindingCount = 1;
-        descriptorCreateInfo.pBindings = &descriptorBinding;
+        descriptorCreateInfo.bindingCount = static_cast<uint32_t>(descriptorBindings.size());
+        descriptorCreateInfo.pBindings = descriptorBindings.data();
 
         VkDescriptorSetLayout newDescriptorSetLayout;
 
@@ -743,7 +761,7 @@ namespace fhope {
         dynamicStatesCreateInfo.pDynamicStates = dynamicStates.data();
 
         VkVertexInputBindingDescription                  bindingDesc   = Vertex2D::get_binding_description();
-        std::array<VkVertexInputAttributeDescription, 2> attributeDesc = Vertex2D::get_attribute_description();
+        std::array<VkVertexInputAttributeDescription, 3> attributeDesc = Vertex2D::get_attribute_description();
 
         VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo{};
         vertexInputStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1111,14 +1129,17 @@ namespace fhope {
             throw std::runtime_error("Tried to create a descriptor pool without providing a logical device in the setup.");
         }
         
-        VkDescriptorPoolSize poolSize{};
-        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+        poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
         VkDescriptorPoolCreateInfo poolCreateInfo{};
         poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolCreateInfo.poolSizeCount = 1;
-        poolCreateInfo.pPoolSizes = &poolSize;
+        poolCreateInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolCreateInfo.pPoolSizes = poolSizes.data();
         poolCreateInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
         VkDescriptorPool newDescriptorPool;
@@ -1152,18 +1173,30 @@ namespace fhope {
             descriptorBufferInfo.offset = 0;
             descriptorBufferInfo.range  = sizeof(UniformBufferObject);
 
-            VkWriteDescriptorSet writeInfo{};
-            writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writeInfo.dstSet = newDescriptorSets[i];
-            writeInfo.dstBinding = 0;
-            writeInfo.dstArrayElement = 0;
+            VkDescriptorImageInfo descriptorImageInfo{};
+            descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            descriptorImageInfo.imageView = setup.textureView.value();
+            descriptorImageInfo.sampler = setup.textureSampler.value();
 
-            writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            writeInfo.descriptorCount = 1;
+            std::array<VkWriteDescriptorSet, 2> writeInfos{};
+
+            writeInfos[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeInfos[0].dstSet = newDescriptorSets[i];
+            writeInfos[0].dstBinding = 0;
+            writeInfos[0].dstArrayElement = 0;
+            writeInfos[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writeInfos[0].descriptorCount = 1;
+            writeInfos[0].pBufferInfo = &descriptorBufferInfo;
+
+            writeInfos[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeInfos[1].dstSet = newDescriptorSets[i];
+            writeInfos[1].dstBinding = 1;
+            writeInfos[1].dstArrayElement = 0;
+            writeInfos[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writeInfos[1].descriptorCount = 1;
+            writeInfos[1].pImageInfo = &descriptorImageInfo;
             
-            writeInfo.pBufferInfo = &descriptorBufferInfo;
-            
-            vkUpdateDescriptorSets(setup.logicalDevice.value(), 1, &writeInfo, 0, nullptr);
+            vkUpdateDescriptorSets(setup.logicalDevice.value(), static_cast<uint32_t>(writeInfos.size()), writeInfos.data(), 0, nullptr);
         }
 
         return newDescriptorSets;
@@ -1340,6 +1373,303 @@ namespace fhope {
 
 
 
+    WrappedTexture create_texture_image(const InstanceSetup &setup, const std::string &textureFilename) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a texture without providing a logical device in the setup.");
+        }
+
+        if (!setup.queues.has_value()) {
+            throw std::runtime_error("Tried to create a texture without providing queue family indices in the setup.");
+        }
+
+        if (!setup.physicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a physical device without providing a physical device in the setup.");
+        }
+        
+        int imageWidth;
+        int imageHeight;
+        int imageChannels;
+
+        stbi_uc *imageData = stbi_load(textureFilename.c_str(), &imageWidth, &imageHeight, &imageChannels, STBI_rgb_alpha);
+        VkDeviceSize imageSizeInBytes = imageWidth*imageHeight*imageChannels*sizeof(stbi_uc);
+
+        if (!imageData) {
+            throw std::runtime_error("Could not load image data for texture creation.");
+        }
+
+        WrappedBuffer stagingTextureBuffer = create_buffer(setup, imageSizeInBytes, VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        void *stagingTextureBufferMapping;
+        vkMapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, 0, stagingTextureBuffer.sizeInBytes, 0, &stagingTextureBufferMapping);
+        memcpy_s(stagingTextureBufferMapping, stagingTextureBuffer.sizeInBytes, imageData, imageSizeInBytes);
+        vkUnmapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory);
+
+        stbi_image_free(imageData);
+        
+        VkImageCreateInfo imageCreateInfo{};
+        imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageCreateInfo.extent.width = imageWidth;
+        imageCreateInfo.extent.height = imageHeight;
+        imageCreateInfo.extent.depth = 1;
+        imageCreateInfo.mipLevels = 1;
+        imageCreateInfo.arrayLayers = 1;
+        imageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+        imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        
+        const std::set<uint32_t> qs { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value(), setup.queues.value().transferIndex.value() };
+        const std::vector<uint32_t> qsv(qs.begin(), qs.end());
+        if (qs.size() > 1) {
+            imageCreateInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+            imageCreateInfo.queueFamilyIndexCount = qsv.size();
+            imageCreateInfo.pQueueFamilyIndices = qsv.data();
+        } else {
+            imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            imageCreateInfo.queueFamilyIndexCount = 0; // Optional
+            imageCreateInfo.pQueueFamilyIndices = nullptr; // Optional
+        }
+
+        WrappedTexture newTexture;
+        if (vkCreateImage(setup.logicalDevice.value(), &imageCreateInfo, nullptr, &newTexture.texture) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create Texture image.");
+        }
+
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(setup.logicalDevice.value(), newTexture.texture, &memoryRequirements);
+
+        VkMemoryAllocateInfo memoryAllocateInfo{};
+        memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        memoryAllocateInfo.allocationSize = memoryRequirements.size;
+        memoryAllocateInfo.memoryTypeIndex = find_memory_type(setup.physicalDevice.value(), memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (vkAllocateMemory(setup.logicalDevice.value(), &memoryAllocateInfo, nullptr, &newTexture.memory) != VK_SUCCESS) {
+            throw std::runtime_error("Couldn't allocate memory for texture");
+        }
+
+        vkBindImageMemory(setup.logicalDevice.value(), newTexture.texture, newTexture.memory, 0);
+
+        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        copy_buffer_to_image(setup, stagingTextureBuffer, &newTexture.texture, imageWidth, imageHeight);
+
+        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        vkDestroyBuffer(setup.logicalDevice.value(), stagingTextureBuffer.buffer, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, nullptr);
+
+        return newTexture;
+    }
+
+
+
+    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a texture image view without providing a logical device in the setup.");
+        }
+        
+        VkImageViewCreateInfo texViewCreateInfo{};
+        texViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        texViewCreateInfo.image = texture.texture;
+        texViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        texViewCreateInfo.format = format;
+        texViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        texViewCreateInfo.subresourceRange.baseMipLevel = 0;
+        texViewCreateInfo.subresourceRange.levelCount = 1;
+        texViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+        texViewCreateInfo.subresourceRange.layerCount = 1;
+
+        VkImageView newImageView;
+        if (vkCreateImageView(setup.logicalDevice.value(), &texViewCreateInfo, nullptr, &newImageView) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create image view for texture.");
+        }
+
+        return newImageView;
+    }
+
+
+
+    VkSampler create_texture_sampler(const InstanceSetup &setup) {
+        if (!setup.physicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a texture sampler without providing a physical device in the setup.");
+        }
+
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a texture sampler without providing a logical device in the setup.");
+        }
+
+        VkSamplerCreateInfo samplerCreateInfo{};
+        samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+        samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+
+        // TODO: Maybe change thos out once "novelty fun" fades lmao
+        samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+
+        samplerCreateInfo.anisotropyEnable = VK_TRUE;
+
+        VkPhysicalDeviceProperties physicalProperties;
+        vkGetPhysicalDeviceProperties(setup.physicalDevice.value(), &physicalProperties);
+
+        samplerCreateInfo.maxAnisotropy = physicalProperties.limits.maxSamplerAnisotropy;
+
+        samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+        samplerCreateInfo.compareEnable = VK_FALSE;
+        samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+        samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerCreateInfo.mipLodBias = 0.0f;
+        samplerCreateInfo.minLod = 0.0f;
+        samplerCreateInfo.maxLod = 0.0f;
+
+        VkSampler newSampler;
+        if (vkCreateSampler(setup.logicalDevice.value(), &samplerCreateInfo, nullptr, &newSampler) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create texture sampler.");
+        }
+
+        return newSampler;
+    }
+
+
+
+    VkCommandBuffer begin_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to begin a one-shot command without providing a logical device in the setup.");
+        }
+
+        VkCommandBufferAllocateInfo osCommandBufferAllocateInfo{};
+        osCommandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        osCommandBufferAllocateInfo.commandBufferCount = 1;
+        osCommandBufferAllocateInfo.commandPool = selectedPool;
+        osCommandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        VkCommandBuffer osCommandBuffer;
+        vkAllocateCommandBuffers(setup.logicalDevice.value(), &osCommandBufferAllocateInfo, &osCommandBuffer);
+
+        VkCommandBufferBeginInfo osCommandBufferBeginInfo{};
+        osCommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        osCommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(osCommandBuffer, &osCommandBufferBeginInfo);
+
+        return osCommandBuffer;
+    }
+
+
+
+    void end_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool, const VkQueue &selectedQueue, VkCommandBuffer *osCommandBuffer) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to end a one-shot command without providing a logical device in the setup.");
+        }
+
+        vkEndCommandBuffer(*osCommandBuffer);
+
+        VkSubmitInfo osSubmitInfo{};
+        osSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        osSubmitInfo.commandBufferCount = 1;
+        osSubmitInfo.pCommandBuffers = osCommandBuffer;
+        
+        vkQueueSubmit(selectedQueue, 1, &osSubmitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(selectedQueue);
+
+        vkFreeCommandBuffers(setup.logicalDevice.value(), selectedPool, 1, osCommandBuffer);
+    }
+
+
+
+    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout) {
+        if (!setup.commandPools.has_value()) {
+            throw std::runtime_error("Tried to transition an image layout without providing command pools in the setup.");
+        }
+
+        if (!setup.graphicsQueue.has_value()) {
+            throw std::runtime_error("Tried to transition an image layout without providing a graphics queue in the setup.");
+        }
+        
+        VkCommandBuffer transitionCommand = begin_one_shot_command(setup, setup.commandPools.value().graphics);
+
+        VkImageMemoryBarrier transitionBarrier{};
+        transitionBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        transitionBarrier.oldLayout = oldLayout;
+        transitionBarrier.newLayout = newLayout;
+        transitionBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionBarrier.image = texture->texture;
+        transitionBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        transitionBarrier.subresourceRange.baseMipLevel = 0;
+        transitionBarrier.subresourceRange.levelCount = 1;
+        transitionBarrier.subresourceRange.baseArrayLayer = 0;
+        transitionBarrier.subresourceRange.layerCount = 1;
+        
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destStage;
+
+        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            transitionBarrier.srcAccessMask = 0;
+            transitionBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destStage   = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            transitionBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            transitionBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destStage   = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else {
+            throw std::runtime_error("Could not transition image layout between specified layouts.");
+        }
+
+    
+        vkCmdPipelineBarrier(
+            transitionCommand,
+            sourceStage, destStage,
+            0,
+            0, nullptr,
+            0, nullptr,
+            1, &transitionBarrier
+        );
+
+        end_one_shot_command(setup, setup.commandPools.value().graphics, setup.graphicsQueue.value(), &transitionCommand);
+    }
+
+
+
+    void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t imageWidth, uint32_t imageHeight) {
+        if (!setup.commandPools.has_value()) {
+            throw std::runtime_error("Tried to copy a buffer to an image without providing command pools in the setup.");
+        }
+
+        if (!setup.graphicsQueue.has_value()) {
+            throw std::runtime_error("Tried to copy a buffer to an image without providing a graphics queue in the setup.");
+        }
+
+        VkCommandBuffer copyToImageCommand = begin_one_shot_command(setup, setup.commandPools.value().graphics);
+
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageSubresource.baseArrayLayer = 0;
+
+        region.imageOffset = { 0, 0, 0 };
+        region.imageExtent = { imageWidth, imageHeight, 1 };
+
+        vkCmdCopyBufferToImage(copyToImageCommand, dataSource.buffer, *image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        end_one_shot_command(setup, setup.commandPools.value().graphics, setup.graphicsQueue.value(), &copyToImageCommand);
+    }
+
+
+
     void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame) {
         if (!setup->logicalDevice.has_value()) {
             throw std::runtime_error("Tried to draw a frame without providing a logical device in the setup.");
@@ -1484,6 +1814,12 @@ namespace fhope {
         vkDestroyCommandPool(setup.logicalDevice.value(), setup.commandPools.value().transfer, nullptr);
 
         cleanup_swap_chain(setup);
+
+        vkDestroySampler(setup.logicalDevice.value(), setup.textureSampler.value(), nullptr);
+        vkDestroyImageView(setup.logicalDevice.value(), setup.textureView.value(), nullptr);
+
+        vkDestroyImage(setup.logicalDevice.value(), setup.texture.value().texture, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), setup.texture.value().memory, nullptr);
         
         for (const WrappedBuffer &uniformBuffer : setup.uniformBuffers) {
             vkDestroyBuffer(setup.logicalDevice.value(), uniformBuffer.buffer, nullptr);

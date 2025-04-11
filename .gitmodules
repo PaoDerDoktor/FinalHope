@@ -19,3 +19,6 @@
 [submodule "submodules/SPIRV-Tools"]
 	path = submodules/SPIRV-Tools
 	url = https://github.com/KhronosGroup/SPIRV-Tools
+[submodule "submodules/stb"]
+	path = submodules/stb
+	url = https://github.com/nothings/stb

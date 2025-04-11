@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <shaderc/shaderc.hpp>
 #include <glm/glm.hpp>
+#include <stb_image.h>
 
 #include "vertex.hpp"
 
@@ -33,10 +34,10 @@ namespace fhope {
     inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
     inline constexpr std::array<Vertex2D, 4> EXAMPLE_VERTICES = {
-        Vertex2D{.position=glm::vec2{-0.5f, -0.5f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}},
-        Vertex2D{.position=glm::vec2{ 0.5f, -0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}},
-        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}},
-        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}},
+        Vertex2D{.position=glm::vec2{-0.5f, -0.5f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}, .uv=glm::vec2{1.0f, 0.0f}},
+        Vertex2D{.position=glm::vec2{ 0.5f, -0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}, .uv=glm::vec2{0.0f, 0.0f}},
+        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}, .uv=glm::vec2{0.0f, 1.0f}},
+        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}, .uv=glm::vec2{1.0f, 1.0f}},
     };
 
     inline constexpr std::array<uint16_t, 6> EXAMPLE_INDICES = {0, 1, 2, 2, 3, 0};
@@ -98,6 +99,10 @@ namespace fhope {
         std::optional<void*> mapping;
     };
 
+    struct WrappedTexture {
+        VkImage texture;
+        VkDeviceMemory memory;
+    };
 
     struct CommandPools {
         VkCommandPool graphics;
@@ -135,6 +140,11 @@ namespace fhope {
         std::vector<VkFramebuffer> swapChainFramebuffers;
 
         std::optional<CommandPools> commandPools;
+        
+        std::optional<WrappedTexture> texture;
+        std::optional<VkImageView> textureView;
+
+        std::optional<VkSampler> textureSampler;
 
         std::optional<WrappedBuffer> vertexBuffer;
 
@@ -247,6 +257,20 @@ namespace fhope {
 
     void update_uniform_buffer(const InstanceSetup &setup, size_t frame);
 
+    WrappedTexture create_texture_image(const InstanceSetup &setup, const std::string &textureFilename);
+
+    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format);
+
+    VkSampler create_texture_sampler(const InstanceSetup &setup);
+
+    VkCommandBuffer begin_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool);
+
+    void end_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool, const VkQueue &selectedQueue, VkCommandBuffer *osCommandBuffer);
+
+    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout);
+
+    void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t width, uint32_t height);
+   
     void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
 
     void cleanup_swap_chain(const InstanceSetup &setup);
