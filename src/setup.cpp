@@ -93,7 +93,7 @@ namespace fhope {
         
         newSetup.textureSampler.emplace(create_texture_sampler(newSetup));
 
-        newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex2D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
+        newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex3D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
 
         newSetup.indexBuffer.emplace(create_index_buffer(newSetup, std::vector<uint16_t>(EXAMPLE_INDICES.begin(), EXAMPLE_INDICES.end())));
         
@@ -760,8 +760,8 @@ namespace fhope {
         dynamicStatesCreateInfo.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicStatesCreateInfo.pDynamicStates = dynamicStates.data();
 
-        VkVertexInputBindingDescription                  bindingDesc   = Vertex2D::get_binding_description();
-        std::array<VkVertexInputAttributeDescription, 3> attributeDesc = Vertex2D::get_attribute_description();
+        VkVertexInputBindingDescription                  bindingDesc   = Vertex3D::get_binding_description();
+        std::array<VkVertexInputAttributeDescription, 3> attributeDesc = Vertex3D::get_attribute_description();
 
         VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo{};
         vertexInputStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1057,12 +1057,12 @@ namespace fhope {
 
 
 
-    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices) {
+    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex3D> &vertices) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a vertex buffer without providing a logical device in the setup");
         }
 
-        WrappedBuffer stagingBuffer = create_buffer(setup, vertices.size()*sizeof(Vertex2D), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        WrappedBuffer stagingBuffer = create_buffer(setup, vertices.size()*sizeof(Vertex3D), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
         void *data;
         vkMapMemory(setup.logicalDevice.value(), stagingBuffer.memory, 0, stagingBuffer.sizeInBytes, 0, &data);

@@ -33,14 +33,20 @@ namespace fhope {
 
     inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
-    inline constexpr std::array<Vertex2D, 4> EXAMPLE_VERTICES = {
-        Vertex2D{.position=glm::vec2{-0.5f, -0.5f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}, .uv=glm::vec2{1.0f, 0.0f}},
-        Vertex2D{.position=glm::vec2{ 0.5f, -0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}, .uv=glm::vec2{0.0f, 0.0f}},
-        Vertex2D{.position=glm::vec2{ 0.5f,  0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}, .uv=glm::vec2{0.0f, 1.0f}},
-        Vertex2D{.position=glm::vec2{-0.5f,  0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}, .uv=glm::vec2{1.0f, 1.0f}},
+    inline constexpr std::array<Vertex3D, 8> EXAMPLE_VERTICES = {
+        Vertex3D{.position=glm::vec3{-0.5f, -0.5f,  0.0f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}, .uv=glm::vec2{1.0f, 0.0f}},
+        Vertex3D{.position=glm::vec3{ 0.5f, -0.5f,  0.0f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}, .uv=glm::vec2{0.0f, 0.0f}},
+        Vertex3D{.position=glm::vec3{ 0.5f,  0.5f,  0.0f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}, .uv=glm::vec2{0.0f, 1.0f}},
+        Vertex3D{.position=glm::vec3{-0.5f,  0.5f,  0.0f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}, .uv=glm::vec2{1.0f, 1.0f}},
+
+        Vertex3D{.position=glm::vec3{-0.5f, -0.5f, -0.5f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}, .uv=glm::vec2{1.0f, 0.0f}},
+        Vertex3D{.position=glm::vec3{ 0.5f, -0.5f, -0.5f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}, .uv=glm::vec2{0.0f, 0.0f}},
+        Vertex3D{.position=glm::vec3{ 0.5f,  0.5f, -0.5f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}, .uv=glm::vec2{0.0f, 1.0f}},
+        Vertex3D{.position=glm::vec3{-0.5f,  0.5f, -0.5f}, .color=glm::vec3{1.0f, 1.0f, 1.0f}, .uv=glm::vec2{1.0f, 1.0f}},
     };
 
-    inline constexpr std::array<uint16_t, 6> EXAMPLE_INDICES = {0, 1, 2, 2, 3, 0};
+    inline constexpr std::array<uint16_t, 12> EXAMPLE_INDICES = {0, 1, 2, 2, 3, 0,
+                                                                 4, 5, 6, 6, 7, 4};
 
     /****************
      ** STRUCTURES **
@@ -239,7 +245,7 @@ namespace fhope {
 
     void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest);
 
-    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex2D> &vertices);
+    WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex3D> &vertices);
 
     WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices);
     
