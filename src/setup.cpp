@@ -82,13 +82,15 @@ namespace fhope {
 
         newSetup.uniformLayout.emplace(create_descriptor_set_layout(newSetup));
         
-        newSetup.graphicsPipelineConfig.emplace(create_graphics_pipeline(newSetup, vertexShaderFilename, fragmentShaderFilename));
-        
-        newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
-        
         newSetup.commandPools.emplace(create_command_pool(newSetup));
         
-        newSetup.texture.emplace(create_texture_image(newSetup, "textures/floral-shoppe-cover.png"));
+        newSetup.depthBuffer.emplace(create_depth_buffer(newSetup));
+        
+        newSetup.graphicsPipelineConfig.emplace(create_graphics_pipeline(newSetup, vertexShaderFilename, fragmentShaderFilename));
+
+        newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
+
+        newSetup.texture.emplace(create_texture_from_image(newSetup, "textures/floral-shoppe-cover.png"));
         newSetup.textureView.emplace(create_texture_image_view(newSetup, newSetup.texture.value(), VK_FORMAT_R8G8B8A8_SRGB));
         
         newSetup.textureSampler.emplace(create_texture_sampler(newSetup));
@@ -637,25 +639,26 @@ namespace fhope {
 
 
     VkRenderPass create_render_pass(const InstanceSetup &setup) {
-        VkAttachmentDescription colorAttachment{};
-
         if (!setup.swapChainConfig.has_value()) {
             throw std::runtime_error("Tried to create a render pass without providing a swap chain config in the setup.");
         }
-
+        
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a render pass without providing a logical device in the setup.");
         }
 
+        if (!setup.depthBuffer.has_value()) {
+            throw std::runtime_error("Tried to create a render pass without providing a depth buffer in the setup.");
+        }
+        
+        // COLOR
+        VkAttachmentDescription colorAttachment{};
         colorAttachment.format = setup.swapChainConfig.value().surfaceFormat.format;
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-
         colorAttachment.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
         colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         colorAttachment.finalLayout   = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
@@ -663,23 +666,41 @@ namespace fhope {
         colorAttachmentReference.attachment = 0;
         colorAttachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        // DEPTH
+        VkAttachmentDescription depthAttachment{};
+        depthAttachment.format = setup.depthBuffer.value().format;
+        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAttachment.finalLayout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depthAttachmentReference{};
+        depthAttachmentReference.attachment = 1;
+        depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        // SUBPASS...
         VkSubpassDescription subpassDescription{};
         subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpassDescription.colorAttachmentCount = 1;
         subpassDescription.pColorAttachments = &colorAttachmentReference;
+        subpassDescription.pDepthStencilAttachment = &depthAttachmentReference;
 
         VkSubpassDependency subpassDependency{};
         subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         subpassDependency.srcAccessMask = 0;
-        subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+        std::array<VkAttachmentDescription, 2> attachmentDescs { colorAttachment, depthAttachment };
         VkRenderPass renderPass{};
         VkRenderPassCreateInfo renderPassCreateInfo{};
         renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassCreateInfo.attachmentCount = 1;
-        renderPassCreateInfo.pAttachments = &colorAttachment;
+        renderPassCreateInfo.attachmentCount = static_cast<uint32_t>(attachmentDescs.size());
+        renderPassCreateInfo.pAttachments = attachmentDescs.data();
         renderPassCreateInfo.subpassCount = 1;
         renderPassCreateInfo.pSubpasses = &subpassDescription;
         renderPassCreateInfo.dependencyCount = 1;
@@ -850,6 +871,17 @@ namespace fhope {
 
         VkRenderPass renderPass = create_render_pass(setup);
 
+        VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo{};
+        depthStencilStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencilStateCreateInfo.depthTestEnable = true;
+        depthStencilStateCreateInfo.depthWriteEnable = true;
+        depthStencilStateCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+        depthStencilStateCreateInfo.depthBoundsTestEnable = false;
+        depthStencilStateCreateInfo.minDepthBounds = 0.0f;
+        depthStencilStateCreateInfo.maxDepthBounds = 1.0f;
+        depthStencilStateCreateInfo.stencilTestEnable = false;
+
+
         VkGraphicsPipelineCreateInfo pipelineCreateInfo{};
         pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineCreateInfo.stageCount = 2;
@@ -863,6 +895,8 @@ namespace fhope {
         pipelineCreateInfo.pDepthStencilState  = nullptr;
         pipelineCreateInfo.pColorBlendState    = &colorBlendStateCreateInfo;
         pipelineCreateInfo.pDynamicState       = &dynamicStatesCreateInfo;
+
+        pipelineCreateInfo.pDepthStencilState = &depthStencilStateCreateInfo;
 
         pipelineCreateInfo.layout = pipelineLayout;
 
@@ -902,15 +936,19 @@ namespace fhope {
             throw std::runtime_error("Tried to create framebuffers without providing a logical device in the setup.");
         }
 
+        if (!setup.depthBuffer.has_value()) {
+            throw std::runtime_error("Tried to create framebufffers without providing a depth buffer in the setup.");
+        }
+
         std::vector<VkFramebuffer> newFramebuffers(setup.swapChainImageViews.size());
 
         for (size_t i = 0; i != setup.swapChainImageViews.size(); ++i) {
-            VkImageView attachments[] = { setup.swapChainImageViews[i] };
+            VkImageView attachments[] = { setup.swapChainImageViews[i], setup.depthBuffer.value().view };
 
             VkFramebufferCreateInfo framebufferCreateInfo{};
             framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebufferCreateInfo.renderPass = setup.graphicsPipelineConfig.value().renderPass;
-            framebufferCreateInfo.attachmentCount = 1;
+            framebufferCreateInfo.attachmentCount = 2;
             framebufferCreateInfo.pAttachments = &attachments[0];
             framebufferCreateInfo.width = setup.swapChainConfig.value().extent.width;
             framebufferCreateInfo.height = setup.swapChainConfig.value().extent.height;
@@ -960,6 +998,80 @@ namespace fhope {
         }
 
         return newCommandPools;
+    }
+
+
+
+    DepthBuffer create_depth_buffer(const InstanceSetup &setup) {
+        if (!setup.swapChainConfig.has_value()) {
+            throw std::runtime_error("Tried to create a depth buffer without providing a swap chain config in the setup.");
+        }
+
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a depth buffer without providing a logical device in the setup.");
+        }
+        
+        DepthBuffer newDepthBuffer;
+        
+        std::vector<VkFormat> availableFormats = find_supported_formats(setup, { VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT }, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        
+        if (availableFormats.size() == 0) {
+            throw std::runtime_error("Could not find any available depth buffer format.");
+        }
+
+        newDepthBuffer.format = availableFormats[0];
+
+        newDepthBuffer.hasStencil = newDepthBuffer.format==VK_FORMAT_D32_SFLOAT_S8_UINT || newDepthBuffer.format==VK_FORMAT_D24_UNORM_S8_UINT;
+
+        newDepthBuffer.image = create_texture(setup, setup.swapChainConfig.value().extent.width, setup.swapChainConfig.value().extent.height, newDepthBuffer.format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+
+        VkImageViewCreateInfo newImageViewCreateInfo{};
+        newImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        newImageViewCreateInfo.image = newDepthBuffer.image.texture;
+        newImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        newImageViewCreateInfo.format = newDepthBuffer.format;
+        
+        newImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        newImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        newImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        newImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        
+        newImageViewCreateInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT;
+        newImageViewCreateInfo.subresourceRange.baseMipLevel   = 0;
+        newImageViewCreateInfo.subresourceRange.levelCount     = 1;
+        newImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+        newImageViewCreateInfo.subresourceRange.layerCount     = 1;
+
+        if (vkCreateImageView(setup.logicalDevice.value(), &newImageViewCreateInfo, nullptr, &newDepthBuffer.view) != VK_SUCCESS) {
+            throw std::runtime_error("Could not create depth buffer image view.");
+        }
+
+        transition_image_layout(setup, &newDepthBuffer.image, newDepthBuffer.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+        return newDepthBuffer;
+    }
+
+
+
+    std::vector<VkFormat> find_supported_formats(const InstanceSetup &setup, const std::vector<VkFormat> &candidates, const VkImageTiling &tiling, const VkFormatFeatureFlags &features) {
+        if (!setup.physicalDevice.has_value()) {
+            throw std::runtime_error("Tried to find supported formats without providing a physical device to the setup.");
+        }
+
+        std::vector<VkFormat> suitableFormats;
+
+        for (const VkFormat &format : candidates) {
+            VkFormatProperties props;
+            vkGetPhysicalDeviceFormatProperties(setup.physicalDevice.value(), format, &props);
+
+            if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features)==features) {
+                suitableFormats.push_back(format);
+            } else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features)==features) {
+                suitableFormats.push_back(format);
+            }
+        }
+
+        return suitableFormats;
     }
 
 
@@ -1254,7 +1366,9 @@ namespace fhope {
             throw std::runtime_error("Couldn't record command buffer (beginning).");
         }
 
-        VkClearValue clearColor = {{{0.8f, 0.0f, 0.8f, 1.0f}}};
+        std::array<VkClearValue, 2> clearColors;
+        clearColors[0].color = {{0.8f, 0.0f, 0.8f, 1.0f}};
+        clearColors[1].depthStencil = {1.0f, 0};
 
         VkRenderPassBeginInfo renderPassBeginInfo{};
         renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1262,8 +1376,8 @@ namespace fhope {
         renderPassBeginInfo.framebuffer = setup.swapChainFramebuffers[imageIndex];
         renderPassBeginInfo.renderArea.extent = setup.swapChainConfig.value().extent;
         renderPassBeginInfo.renderArea.offset = { 0, 0 };
-        renderPassBeginInfo.clearValueCount = 1;
-        renderPassBeginInfo.pClearValues = &clearColor;
+        renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearColors.size());
+        renderPassBeginInfo.pClearValues = clearColors.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1373,7 +1487,50 @@ namespace fhope {
 
 
 
-    WrappedTexture create_texture_image(const InstanceSetup &setup, const std::string &textureFilename) {
+    WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilename) {
+        if (!setup.logicalDevice.has_value()) {
+            throw std::runtime_error("Tried to create a texture from an image without providing a logical device in the setup.");
+        }
+        
+        int imageWidth;
+        int imageHeight;
+        int imageChannels;
+
+        stbi_uc *imageData = stbi_load(textureFilename.c_str(), &imageWidth, &imageHeight, &imageChannels, STBI_rgb_alpha);
+        
+
+        if (!imageData) {
+            throw std::runtime_error("Could not load image data for texture creation.");
+        }
+
+        VkDeviceSize imageSizeInBytes = imageWidth*imageHeight*imageChannels*sizeof(uint8_t);
+
+        WrappedBuffer stagingTextureBuffer = create_buffer(setup, imageSizeInBytes, VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        void *stagingTextureBufferMapping;
+        vkMapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, 0, stagingTextureBuffer.sizeInBytes, 0, &stagingTextureBufferMapping);
+        memcpy_s(stagingTextureBufferMapping, stagingTextureBuffer.sizeInBytes,imageData, imageSizeInBytes);
+        vkUnmapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory);
+
+        WrappedTexture newTexture = create_texture(setup, imageWidth, imageHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+
+        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        copy_buffer_to_image(setup, stagingTextureBuffer, &newTexture.texture, imageWidth, imageHeight);
+
+        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        vkDestroyBuffer(setup.logicalDevice.value(), stagingTextureBuffer.buffer, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, nullptr);
+
+        stbi_image_free(imageData);
+
+        return newTexture;
+    }
+
+
+
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkFormat depthFormat, VkImageUsageFlags usage) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a texture without providing a logical device in the setup.");
         }
@@ -1386,38 +1543,18 @@ namespace fhope {
             throw std::runtime_error("Tried to create a physical device without providing a physical device in the setup.");
         }
         
-        int imageWidth;
-        int imageHeight;
-        int imageChannels;
-
-        stbi_uc *imageData = stbi_load(textureFilename.c_str(), &imageWidth, &imageHeight, &imageChannels, STBI_rgb_alpha);
-        VkDeviceSize imageSizeInBytes = imageWidth*imageHeight*imageChannels*sizeof(stbi_uc);
-
-        if (!imageData) {
-            throw std::runtime_error("Could not load image data for texture creation.");
-        }
-
-        WrappedBuffer stagingTextureBuffer = create_buffer(setup, imageSizeInBytes, VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        void *stagingTextureBufferMapping;
-        vkMapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, 0, stagingTextureBuffer.sizeInBytes, 0, &stagingTextureBufferMapping);
-        memcpy_s(stagingTextureBufferMapping, stagingTextureBuffer.sizeInBytes, imageData, imageSizeInBytes);
-        vkUnmapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory);
-
-        stbi_image_free(imageData);
-        
         VkImageCreateInfo imageCreateInfo{};
         imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageCreateInfo.extent.width = imageWidth;
-        imageCreateInfo.extent.height = imageHeight;
+        imageCreateInfo.extent.width = width;
+        imageCreateInfo.extent.height = height;
         imageCreateInfo.extent.depth = 1;
         imageCreateInfo.mipLevels = 1;
         imageCreateInfo.arrayLayers = 1;
-        imageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+        imageCreateInfo.format = depthFormat;
         imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageCreateInfo.usage = usage;
         imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         
         const std::set<uint32_t> qs { setup.queues.value().graphicsIndex.value(), setup.queues.value().presentIndex.value(), setup.queues.value().transferIndex.value() };
@@ -1450,15 +1587,6 @@ namespace fhope {
         }
 
         vkBindImageMemory(setup.logicalDevice.value(), newTexture.texture, newTexture.memory, 0);
-
-        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-        copy_buffer_to_image(setup, stagingTextureBuffer, &newTexture.texture, imageWidth, imageHeight);
-
-        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        vkDestroyBuffer(setup.logicalDevice.value(), stagingTextureBuffer.buffer, nullptr);
-        vkFreeMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, nullptr);
 
         return newTexture;
     }
@@ -1599,12 +1727,18 @@ namespace fhope {
         transitionBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionBarrier.image = texture->texture;
-        transitionBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
         transitionBarrier.subresourceRange.baseMipLevel = 0;
         transitionBarrier.subresourceRange.levelCount = 1;
         transitionBarrier.subresourceRange.baseArrayLayer = 0;
         transitionBarrier.subresourceRange.layerCount = 1;
-        
+
+        if (format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D32_SFLOAT || format == VK_FORMAT_D24_UNORM_S8_UINT) {
+            transitionBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        } else {
+            transitionBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+
         VkPipelineStageFlags sourceStage;
         VkPipelineStageFlags destStage;
 
@@ -1620,6 +1754,12 @@ namespace fhope {
 
             sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
             destStage   = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)  {
+            transitionBarrier.srcAccessMask = 0;
+            transitionBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destStage   = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         } else {
             throw std::runtime_error("Could not transition image layout between specified layouts.");
         }
@@ -1759,6 +1899,10 @@ namespace fhope {
             vkDestroyImageView(setup.logicalDevice.value(), imageView, nullptr);
         }
 
+        vkDestroyImageView(setup.logicalDevice.value(), setup.depthBuffer.value().view, nullptr);
+        vkDestroyImage(setup.logicalDevice.value(), setup.depthBuffer.value().image.texture, nullptr);
+        vkFreeMemory(setup.logicalDevice.value(), setup.depthBuffer.value().image.memory, nullptr);
+
         vkDestroySwapchainKHR(setup.logicalDevice.value(), setup.swapChain.value(), nullptr);
     }
 
@@ -1776,6 +1920,7 @@ namespace fhope {
         setup->swapChain.emplace(create_swap_chain(*setup, window));
         setup->swapChainImages = retrieve_swap_chain_images(*setup);
         setup->swapChainImageViews = create_swap_chain_image_views(*setup);
+        setup->depthBuffer = create_depth_buffer(*setup);
         setup->swapChainFramebuffers = create_framebuffers(*setup);
     }
 

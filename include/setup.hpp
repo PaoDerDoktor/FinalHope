@@ -115,6 +115,13 @@ namespace fhope {
         VkCommandPool transfer;
     };
 
+    struct DepthBuffer {
+        WrappedTexture image;
+        VkImageView view;
+        VkFormat format;
+        bool hasStencil;
+    };
+
     struct InstanceSetup {
         VkInstance instance = VK_NULL_HANDLE; // Vulkan instance
         std::optional<VkDebugUtilsMessengerEXT> debugMessenger = std::nullopt; // Debugger of the instance
@@ -146,6 +153,8 @@ namespace fhope {
         std::vector<VkFramebuffer> swapChainFramebuffers;
 
         std::optional<CommandPools> commandPools;
+
+        std::optional<DepthBuffer> depthBuffer;
         
         std::optional<WrappedTexture> texture;
         std::optional<VkImageView> textureView;
@@ -241,6 +250,10 @@ namespace fhope {
 
     CommandPools create_command_pool(const InstanceSetup &setup);
 
+    DepthBuffer create_depth_buffer(const InstanceSetup &setup);
+
+    std::vector<VkFormat> find_supported_formats(const InstanceSetup &setup, const std::vector<VkFormat> &candidates, const VkImageTiling &tiling, const VkFormatFeatureFlags &features);
+
     WrappedBuffer create_buffer(const InstanceSetup &setup, VkDeviceSize sizeInBytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
 
     void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest);
@@ -263,7 +276,9 @@ namespace fhope {
 
     void update_uniform_buffer(const InstanceSetup &setup, size_t frame);
 
-    WrappedTexture create_texture_image(const InstanceSetup &setup, const std::string &textureFilename);
+    WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilname);
+
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkFormat depthFormat, VkImageUsageFlags usage);
 
     VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format);
 
