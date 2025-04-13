@@ -100,7 +100,7 @@ namespace fhope {
         newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, newModel.vertices));
 
         newSetup.indexBuffer.emplace(create_index_buffer(newSetup, newModel.indices));
-        newSetup.indexCount = newModel.indices.size(); // TODO
+        newSetup.indexCount = newModel.indices.size();
 
         newSetup.uniformBuffers = create_uniform_buffers(newSetup);
         
@@ -717,8 +717,7 @@ namespace fhope {
     }
 
 
-    
-    // TODO : Rename/generalize this function maybe ? to emphasize on vertex uniform ?
+
     VkDescriptorSetLayout create_descriptor_set_layout(const InstanceSetup &setup) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a descriptor set layout without providingg a logical device in the setup.");

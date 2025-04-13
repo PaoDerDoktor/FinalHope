@@ -115,6 +115,7 @@ namespace fhope {
     struct WrappedTexture {
         VkImage texture;
         VkDeviceMemory memory;
+        std::optional<uint32_t> mipLevels;
     };
 
     struct CommandPools {
