@@ -11,12 +11,14 @@
 #include <sstream>
 #include <streambuf>
 #include <cmath>
+#include <unordered_map>
 
 #include <glad/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <shaderc/shaderc.hpp>
 #include <glm/glm.hpp>
 #include <stb_image.h>
+#include <tiny_obj_loader.h>
 
 #include "vertex.hpp"
 
@@ -33,7 +35,7 @@ namespace fhope {
 
     inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
-    inline constexpr std::array<Vertex3D, 8> EXAMPLE_VERTICES = {
+    /*inline constexpr std::array<Vertex3D, 8> EXAMPLE_VERTICES = {
         Vertex3D{.position=glm::vec3{-0.5f, -0.5f,  0.0f}, .color=glm::vec3{1.0f, 0.0f, 0.0f}, .uv=glm::vec2{1.0f, 0.0f}},
         Vertex3D{.position=glm::vec3{ 0.5f, -0.5f,  0.0f}, .color=glm::vec3{0.0f, 1.0f, 0.0f}, .uv=glm::vec2{0.0f, 0.0f}},
         Vertex3D{.position=glm::vec3{ 0.5f,  0.5f,  0.0f}, .color=glm::vec3{0.0f, 0.0f, 1.0f}, .uv=glm::vec2{0.0f, 1.0f}},
@@ -46,11 +48,16 @@ namespace fhope {
     };
 
     inline constexpr std::array<uint16_t, 12> EXAMPLE_INDICES = {0, 1, 2, 2, 3, 0,
-                                                                 4, 5, 6, 6, 7, 4};
+                                                                 4, 5, 6, 6, 7, 4};*/
 
     /****************
      ** STRUCTURES **
      ****************/
+
+    struct LoadedModel {
+        std::vector<Vertex3D> vertices;
+        std::vector<uint32_t> indices;
+    };
 
     struct UniformBufferObject {
         glm::mat4 model;
@@ -164,6 +171,7 @@ namespace fhope {
         std::optional<WrappedBuffer> vertexBuffer;
 
         std::optional<WrappedBuffer> indexBuffer;
+        std::optional<size_t> indexCount;
 
         std::vector<WrappedBuffer> uniformBuffers;
 
@@ -200,7 +208,7 @@ namespace fhope {
      */
     void terminate_dependencies();
 
-    InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
+    InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename, const std::string &textureFilename, const std::string &modelFilename);
 
     /**
      * @brief Prepares and returns an instance and it's setup
@@ -260,7 +268,7 @@ namespace fhope {
 
     WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex3D> &vertices);
 
-    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices);
+    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint32_t> &indices);
     
     std::vector<WrappedBuffer> create_uniform_buffers(const InstanceSetup &setup);
 
@@ -299,6 +307,8 @@ namespace fhope {
     void recreate_swap_chain(InstanceSetup *setup, GLFWwindow *window);
 
     uint32_t find_memory_type(const VkPhysicalDevice &device, uint32_t typeFilter, const VkMemoryPropertyFlags &properties);
+
+    LoadedModel load_model(const std::string &filename);
 
     void clean_setup(const InstanceSetup &setup);
 }

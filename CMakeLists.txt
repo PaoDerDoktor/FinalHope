@@ -29,6 +29,8 @@ ADD_SUBDIRECTORY(${CMAKE_SOURCE_DIR}/submodules/glfw)
 
 ADD_SUBDIRECTORY(${CMAKE_SOURCE_DIR}/submodules/glm)
 
+ADD_SUBDIRECTORY(${CMAKE_SOURCE_DIR}/submodules/tinyobjloader)
+
 ADD_CUSTOM_TARGET(copy-shaders ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders ${CMAKE_BINARY_DIR}/shaders
     DEPENDS fhope
@@ -39,4 +41,9 @@ ADD_CUSTOM_TARGET(copy-textures ALL
     DEPENDS fhope
 )
 
-TARGET_LINK_LIBRARIES(fhope glad_vulkan_12 glfw glm::glm shaderc)
+ADD_CUSTOM_TARGET(copy-models ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models ${CMAKE_BINARY_DIR}/models
+    DEPENDS fhope
+)
+
+TARGET_LINK_LIBRARIES(fhope glad_vulkan_12 glfw glm::glm shaderc tinyobjloader)

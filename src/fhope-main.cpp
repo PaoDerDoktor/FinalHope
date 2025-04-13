@@ -29,7 +29,7 @@ int main(int argc, char const *argv[]) {
 
     fhope::InstanceSetup setup;
     try {
-        setup = fhope::generate_vulkan_setup(window, "Test", {0, 0, 1}, "shaders/base.v.glsl", "shaders/base.f.glsl");
+        setup = fhope::generate_vulkan_setup(window, "Test", {0, 0, 1}, "shaders/base.v.glsl", "shaders/base.f.glsl", "textures/viking_room.png", "models/viking_room.obj");
     } catch(const std::exception& e) {
         std::cout << e.what() << std::endl;
     }

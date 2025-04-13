@@ -39,7 +39,7 @@ namespace fhope {
 
     
 
-    InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename) {
+    InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename, const std::string &textureFilename, const std::string &modelFilename) {
         glfwMakeContextCurrent(window);
         
         InstanceSetup newSetup = create_instance(appName, appVersion);
@@ -90,15 +90,18 @@ namespace fhope {
 
         newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
 
-        newSetup.texture.emplace(create_texture_from_image(newSetup, "textures/floral-shoppe-cover.png"));
+        newSetup.texture.emplace(create_texture_from_image(newSetup, textureFilename));
         newSetup.textureView.emplace(create_texture_image_view(newSetup, newSetup.texture.value(), VK_FORMAT_R8G8B8A8_SRGB));
         
         newSetup.textureSampler.emplace(create_texture_sampler(newSetup));
 
-        newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, std::vector<Vertex3D>(EXAMPLE_VERTICES.begin(), EXAMPLE_VERTICES.end())));
+        LoadedModel newModel = load_model(modelFilename);
 
-        newSetup.indexBuffer.emplace(create_index_buffer(newSetup, std::vector<uint16_t>(EXAMPLE_INDICES.begin(), EXAMPLE_INDICES.end())));
-        
+        newSetup.vertexBuffer.emplace(create_vertex_buffer(newSetup, newModel.vertices));
+
+        newSetup.indexBuffer.emplace(create_index_buffer(newSetup, newModel.indices));
+        newSetup.indexCount = newModel.indices.size(); // TODO
+
         newSetup.uniformBuffers = create_uniform_buffers(newSetup);
         
         newSetup.descriptorPool.emplace(create_descriptor_pool(newSetup));
@@ -1193,12 +1196,12 @@ namespace fhope {
 
 
 
-    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint16_t> &indices) {
+    WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint32_t> &indices) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create an index buffer without providing a logical device in the setup.");
         }
 
-        WrappedBuffer stagingBuffer = create_buffer(setup, indices.size()*sizeof(uint16_t), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        WrappedBuffer stagingBuffer = create_buffer(setup, indices.size()*sizeof(uint32_t), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
         void *data;
         vkMapMemory(setup.logicalDevice.value(), stagingBuffer.memory, 0, stagingBuffer.sizeInBytes, 0, &data);
@@ -1388,7 +1391,7 @@ namespace fhope {
 
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffers[0], &offsets[0]);
 
-        vkCmdBindIndexBuffer(commandBuffer, setup.indexBuffer.value().buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, setup.indexBuffer.value().buffer, 0, VK_INDEX_TYPE_UINT32);
 
         // TODO: avoid rpeating it again by storing them somewhere ?
             VkViewport viewport{};
@@ -1408,7 +1411,7 @@ namespace fhope {
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, setup.graphicsPipelineConfig.value().pipelineLayout, 0, 1, &setup.descriptorSets[currentFrame], 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffer, EXAMPLE_INDICES.size(), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, setup.indexCount.value(), 1, 0, 0, 0);
     
         vkCmdEndRenderPass(commandBuffer);
 
@@ -1937,6 +1940,55 @@ namespace fhope {
         }
 
         throw std::runtime_error("Failed to find a suitable memory type.");
+    }
+
+
+
+    LoadedModel load_model(const std::string &filename) {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+
+        std::string warning;
+        std::string error;
+
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warning, &error, filename.c_str())) {
+            std::cout << "[TINYOBJ]: " + warning + error;
+        }
+
+        LoadedModel newModel{};
+
+        std::unordered_map<Vertex3D, uint32_t> uniqueVertices{};
+
+        for (tinyobj::shape_t shape : shapes) {
+            for (tinyobj::index_t index : shape.mesh.indices) {
+                Vertex3D newVertex {
+                    .position={
+                        attrib.vertices[3*index.vertex_index + 0],
+                        attrib.vertices[3*index.vertex_index + 1],
+                        attrib.vertices[3*index.vertex_index + 2]
+                    },
+                    .color={
+                        1.0f,
+                        1.0f,
+                        1.0f
+                    },
+                    .uv={
+                        attrib.texcoords[2*index.texcoord_index + 0],
+                        1.0f - attrib.texcoords[2*index.texcoord_index + 1]
+                    }
+                };
+
+                if (uniqueVertices.count(newVertex) == 0) {
+                    uniqueVertices[newVertex] = static_cast<uint32_t>(newModel.vertices.size());
+                    newModel.vertices.push_back(newVertex);
+                }
+
+                newModel.indices.push_back(uniqueVertices[newVertex]);
+            }
+        }
+
+        return newModel;
     }
     
     

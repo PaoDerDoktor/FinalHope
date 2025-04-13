@@ -2,7 +2,9 @@
 
 #include <array>
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
+#include <glm/gtx/hash.hpp>
 #include <glad/vulkan.h>
 
 namespace fhope {
@@ -44,6 +46,9 @@ namespace fhope {
 
             return attributeDescription;
         }
+
+
+        bool operator==(const Vertex2D &o) const;
     };
 
     struct Vertex3D {
@@ -84,5 +89,18 @@ namespace fhope {
 
             return attributeDescription;
         }
+
+
+        bool operator==(const Vertex3D &o) const;
+    };
+}
+
+namespace std {
+    template<> struct hash<fhope::Vertex2D> {
+        size_t operator() (fhope::Vertex2D const& toHash) const;
+    };
+
+    template<> struct hash<fhope::Vertex3D> {
+        size_t operator() (fhope::Vertex3D const& toHash) const;
     };
 }
