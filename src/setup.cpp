@@ -91,9 +91,9 @@ namespace fhope {
         newSetup.swapChainFramebuffers = create_framebuffers(newSetup);
 
         newSetup.texture.emplace(create_texture_from_image(newSetup, textureFilename));
-        newSetup.textureView.emplace(create_texture_image_view(newSetup, newSetup.texture.value(), VK_FORMAT_R8G8B8A8_SRGB));
+        newSetup.textureView.emplace(create_texture_image_view(newSetup, newSetup.texture.value(), VK_FORMAT_R8G8B8A8_SRGB, newSetup.texture.value().mipLevels.value()));
         
-        newSetup.textureSampler.emplace(create_texture_sampler(newSetup));
+        newSetup.textureSampler.emplace(create_texture_sampler(newSetup, newSetup.texture.value().mipLevels));
 
         LoadedModel newModel = load_model(modelFilename);
 
@@ -1025,7 +1025,7 @@ namespace fhope {
 
         newDepthBuffer.hasStencil = newDepthBuffer.format==VK_FORMAT_D32_SFLOAT_S8_UINT || newDepthBuffer.format==VK_FORMAT_D24_UNORM_S8_UINT;
 
-        newDepthBuffer.image = create_texture(setup, setup.swapChainConfig.value().extent.width, setup.swapChainConfig.value().extent.height, newDepthBuffer.format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        newDepthBuffer.image = create_texture(setup, setup.swapChainConfig.value().extent.width, setup.swapChainConfig.value().extent.height, 1, newDepthBuffer.format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
         VkImageViewCreateInfo newImageViewCreateInfo{};
         newImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1048,7 +1048,7 @@ namespace fhope {
             throw std::runtime_error("Could not create depth buffer image view.");
         }
 
-        transition_image_layout(setup, &newDepthBuffer.image, newDepthBuffer.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        transition_image_layout(setup, &newDepthBuffer.image, newDepthBuffer.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 
         return newDepthBuffer;
     }
@@ -1513,14 +1513,19 @@ namespace fhope {
         vkMapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, 0, stagingTextureBuffer.sizeInBytes, 0, &stagingTextureBufferMapping);
         memcpy_s(stagingTextureBufferMapping, stagingTextureBuffer.sizeInBytes,imageData, imageSizeInBytes);
         vkUnmapMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory);
+        
+        uint32_t availableMips = static_cast<uint32_t>(std::floor(std::log2(std::max(imageHeight, imageWidth))));
 
-        WrappedTexture newTexture = create_texture(setup, imageWidth, imageHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        WrappedTexture newTexture = create_texture(setup, imageWidth, imageHeight, availableMips, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        newTexture.mipLevels.emplace(availableMips);
 
-        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, availableMips);
 
         copy_buffer_to_image(setup, stagingTextureBuffer, &newTexture.texture, imageWidth, imageHeight);
 
-        transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        generate_mipmaps(setup, newTexture.texture, VK_FORMAT_R8G8B8A8_SRGB, imageWidth, imageHeight, availableMips);
+        // TODO : See about removing ? should be done in mipmaps instead
+        //transition_image_layout(setup, &newTexture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, availableMips);
 
         vkDestroyBuffer(setup.logicalDevice.value(), stagingTextureBuffer.buffer, nullptr);
         vkFreeMemory(setup.logicalDevice.value(), stagingTextureBuffer.memory, nullptr);
@@ -1532,7 +1537,7 @@ namespace fhope {
 
 
 
-    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkFormat depthFormat, VkImageUsageFlags usage) {
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a texture without providing a logical device in the setup.");
         }
@@ -1551,7 +1556,7 @@ namespace fhope {
         imageCreateInfo.extent.width = width;
         imageCreateInfo.extent.height = height;
         imageCreateInfo.extent.depth = 1;
-        imageCreateInfo.mipLevels = 1;
+        imageCreateInfo.mipLevels = mipLevels;
         imageCreateInfo.arrayLayers = 1;
         imageCreateInfo.format = depthFormat;
         imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -1595,7 +1600,7 @@ namespace fhope {
 
 
 
-    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format) {
+    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format, uint32_t mipLevels) {
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a texture image view without providing a logical device in the setup.");
         }
@@ -1607,7 +1612,7 @@ namespace fhope {
         texViewCreateInfo.format = format;
         texViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         texViewCreateInfo.subresourceRange.baseMipLevel = 0;
-        texViewCreateInfo.subresourceRange.levelCount = 1;
+        texViewCreateInfo.subresourceRange.levelCount = mipLevels;
         texViewCreateInfo.subresourceRange.baseArrayLayer = 0;
         texViewCreateInfo.subresourceRange.layerCount = 1;
 
@@ -1621,7 +1626,113 @@ namespace fhope {
 
 
 
-    VkSampler create_texture_sampler(const InstanceSetup &setup) {
+    void generate_mipmaps(const InstanceSetup &setup, const VkImage &image, const VkFormat &format, int width, int height, uint32_t mipLevels) {
+        if (!setup.commandPools.has_value()) {
+            throw std::runtime_error("Tried to generate mipmaps without providing command pools in the setup.");
+        }
+
+        if (!setup.graphicsQueue.has_value()) {
+            throw std::runtime_error("Tried to generate mipmaps without providing a graphics queue in the setup.");
+        }
+
+        if (!setup.physicalDevice.has_value()) {
+            throw std::runtime_error("Tried to generate mipmaps without providing a physical device in the setup.");
+        }
+
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(setup.physicalDevice.value(), format, &props);
+
+        if (! (props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) ) {
+            throw std::runtime_error("Mipmaps can't be blitted because physical device can't handle their format with linear filtering.");
+        }
+        
+        VkCommandBuffer command = begin_one_shot_command(setup, setup.commandPools.value().graphics);
+        
+        VkImageMemoryBarrier mipmapBarrier{};
+        mipmapBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        mipmapBarrier.image = image;
+        mipmapBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        mipmapBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        mipmapBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        mipmapBarrier.subresourceRange.baseArrayLayer = 0;
+        mipmapBarrier.subresourceRange.layerCount = 1;
+        mipmapBarrier.subresourceRange.levelCount = 1;
+
+        int mipWidth = width;
+        int mipHeight = height;
+        
+        for (uint32_t i = 1; i != mipLevels; ++i) {
+            mipmapBarrier.subresourceRange.baseMipLevel = i-1;
+            mipmapBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            mipmapBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            mipmapBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            mipmapBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            
+            vkCmdPipelineBarrier(command,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                0, nullptr,
+                0, nullptr,
+                1, &mipmapBarrier
+            );
+            
+            VkImageBlit blit{};
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = i-1;
+            blit.srcSubresource.baseArrayLayer = 0;
+            blit.srcSubresource.layerCount = 1;
+            
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (mipWidth>1)? mipWidth/2 : 1, (mipHeight>1)? mipHeight/2 : 1, 1 };
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = i;
+            blit.dstSubresource.baseArrayLayer = 0;
+            blit.dstSubresource.layerCount = 1;
+            
+            vkCmdBlitImage(command,
+                image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &blit,
+                VK_FILTER_LINEAR
+            );
+
+            mipmapBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            mipmapBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            mipmapBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            mipmapBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(command,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                0, nullptr,
+                0, nullptr,
+                1, &mipmapBarrier
+            );
+            
+            if (mipWidth  > 1) { mipWidth  /= 2; }
+            if (mipHeight > 1) { mipHeight /= 2; }
+        }
+
+        mipmapBarrier.subresourceRange.baseMipLevel = mipLevels - 1;
+        mipmapBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        mipmapBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        mipmapBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        mipmapBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+
+        vkCmdPipelineBarrier(command,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            0, nullptr,
+            0, nullptr,
+            1, &mipmapBarrier
+        );
+        
+        end_one_shot_command(setup, setup.commandPools.value().graphics, setup.graphicsQueue.value(), &command);
+    }
+
+
+
+    VkSampler create_texture_sampler(const InstanceSetup &setup, std::optional<uint32_t> mipLevel) {
         if (!setup.physicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a texture sampler without providing a physical device in the setup.");
         }
@@ -1655,6 +1766,10 @@ namespace fhope {
         samplerCreateInfo.mipLodBias = 0.0f;
         samplerCreateInfo.minLod = 0.0f;
         samplerCreateInfo.maxLod = 0.0f;
+
+        if (mipLevel.has_value()) {
+            samplerCreateInfo.maxLod = static_cast<float>(mipLevel.value());
+        }
 
         VkSampler newSampler;
         if (vkCreateSampler(setup.logicalDevice.value(), &samplerCreateInfo, nullptr, &newSampler) != VK_SUCCESS) {
@@ -1711,7 +1826,7 @@ namespace fhope {
 
 
 
-    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout) {
+    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout, uint32_t mipLevels) {
         if (!setup.commandPools.has_value()) {
             throw std::runtime_error("Tried to transition an image layout without providing command pools in the setup.");
         }
@@ -1731,7 +1846,7 @@ namespace fhope {
         transitionBarrier.image = texture->texture;
 
         transitionBarrier.subresourceRange.baseMipLevel = 0;
-        transitionBarrier.subresourceRange.levelCount = 1;
+        transitionBarrier.subresourceRange.levelCount = mipLevels;
         transitionBarrier.subresourceRange.baseArrayLayer = 0;
         transitionBarrier.subresourceRange.layerCount = 1;
 

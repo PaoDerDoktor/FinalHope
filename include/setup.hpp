@@ -287,17 +287,19 @@ namespace fhope {
 
     WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilname);
 
-    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkFormat depthFormat, VkImageUsageFlags usage);
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage);
 
-    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format);
+    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format, uint32_t mipLevels);
 
-    VkSampler create_texture_sampler(const InstanceSetup &setup);
+    void generate_mipmaps(const InstanceSetup &setup, const VkImage &image, const VkFormat &format, int width, int height, uint32_t mipLevels);
+
+    VkSampler create_texture_sampler(const InstanceSetup &setup, std::optional<uint32_t> mipLevels);
 
     VkCommandBuffer begin_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool);
 
     void end_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool, const VkQueue &selectedQueue, VkCommandBuffer *osCommandBuffer);
 
-    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout);
+    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout, uint32_t mipLevels);
 
     void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t width, uint32_t height);
    
