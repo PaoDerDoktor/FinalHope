@@ -118,6 +118,11 @@ namespace fhope {
         std::optional<uint32_t> mipLevels;
     };
 
+    struct ViewableImage {
+        WrappedTexture image;
+        VkImageView imageView;
+    };
+
     struct CommandPools {
         VkCommandPool graphics;
         VkCommandPool transfer;
@@ -182,6 +187,10 @@ namespace fhope {
         std::vector<VkCommandBuffer> commandBuffers;
 
         std::optional<BaseSyncObjects> syncObjects;
+
+        std::optional<VkSampleCountFlagBits> maxSamplesFlag;
+
+        std::optional<ViewableImage> colorImage;
 
         uint32_t currentFrame = 0;
     };
@@ -287,7 +296,7 @@ namespace fhope {
 
     WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilname);
 
-    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage);
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkSampleCountFlagBits flags, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage);
 
     VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format, uint32_t mipLevels);
 
@@ -303,6 +312,10 @@ namespace fhope {
 
     void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t width, uint32_t height);
    
+    VkSampleCountFlagBits get_max_multisampling_level(const InstanceSetup &setup);
+    
+    ViewableImage create_color_image(const InstanceSetup &setup);
+
     void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
 
     void cleanup_swap_chain(const InstanceSetup &setup);
