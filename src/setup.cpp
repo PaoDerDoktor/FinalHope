@@ -673,6 +673,10 @@ namespace fhope {
             throw std::runtime_error("Tried to create a command pool without providing a graphics queue family index in the setup.");
         }
 
+        if (!setup.queues.value().transferIndex.has_value()) {
+            throw std::runtime_error("Tried to create a command pool without providing a transfer queue family index in the setup.");
+        }
+
         if (!setup.logicalDevice.has_value()) {
             throw std::runtime_error("Tried to create a command pool without providing a logical device in the setup.");
         }
