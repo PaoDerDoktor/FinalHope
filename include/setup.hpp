@@ -53,80 +53,52 @@ namespace fhope {
     /****************
      ** STRUCTURES **
      ****************/
-
-    struct LoadedModel {
-        std::vector<Vertex3D> vertices;
-        std::vector<uint32_t> indices;
-    };
-
-    struct UniformBufferObject {
-        glm::mat4 model;
-        glm::mat4 view;
-        glm::mat4 projection;
-    };
-
+    
     struct QueueSetup {
         std::optional<uint32_t> graphicsIndex = std::nullopt;
         std::optional<uint32_t> presentIndex  = std::nullopt;
         std::optional<uint32_t> transferIndex = std::nullopt;
-
+        
         std::vector<float> priorities;
-
+        
         bool is_complete() const;
     };
+
 
     struct SwapChainSupport {
         VkSurfaceCapabilitiesKHR capabilities;
         std::vector<VkSurfaceFormatKHR> formats;
         std::vector<VkPresentModeKHR> presentModes;
     };
-
+    
+    
     struct SwapChainConfig {
         VkSurfaceFormatKHR surfaceFormat;
         VkPresentModeKHR   presentMode;
         VkExtent2D         extent;
-
+        
         uint32_t imageCount;
     };
+    
 
-    struct GraphicsPipelineConfig {
-        std::string vertexShaderFilename;
-        std::string fragmentShaderFilename;
-
-        VkPipelineLayout pipelineLayout;
-        VkRenderPass renderPass;
-
-        VkPipeline pipeline;
+    struct CommandPools {
+        VkCommandPool graphics;
+        VkCommandPool transfer;
     };
-
-    struct BaseSyncObjects {
-        std::vector<VkSemaphore> imageAvailableSemaphores;
-        std::vector<VkSemaphore> renderFinishedSemaphores;
-        std::vector<VkFence>     inFlightFences;
-    };
-
-    struct WrappedBuffer {
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-        VkDeviceSize sizeInBytes;
-        std::optional<void*> mapping;
-    };
-
+    
+    
     struct WrappedTexture {
         VkImage texture;
         VkDeviceMemory memory;
         std::optional<uint32_t> mipLevels;
     };
 
+
     struct ViewableImage {
         WrappedTexture image;
         VkImageView imageView;
     };
 
-    struct CommandPools {
-        VkCommandPool graphics;
-        VkCommandPool transfer;
-    };
 
     struct DepthBuffer {
         WrappedTexture image;
@@ -134,21 +106,64 @@ namespace fhope {
         VkFormat format;
         bool hasStencil;
     };
+    
+    
+    struct GraphicsPipelineConfig {
+        std::string vertexShaderFilename;
+        std::string fragmentShaderFilename;
+        
+        VkPipelineLayout pipelineLayout;
+        VkRenderPass renderPass;
+        
+        VkPipeline pipeline;
+    };
+        
+        
+    struct WrappedBuffer {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        VkDeviceSize sizeInBytes;
+        std::optional<void*> mapping;
+    };
+
+
+    struct BaseSyncObjects {
+        std::vector<VkSemaphore> imageAvailableSemaphores;
+        std::vector<VkSemaphore> renderFinishedSemaphores;
+        std::vector<VkFence>     inFlightFences;
+    };
+
+
+    struct LoadedModel {
+        std::vector<Vertex3D> vertices;
+        std::vector<uint32_t> indices;
+    };
+    
+    
+    struct UniformBufferObject {
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 projection;
+    };
+
 
     struct InstanceSetup {
         VkInstance instance = VK_NULL_HANDLE; // Vulkan instance
+        
         std::optional<VkDebugUtilsMessengerEXT> debugMessenger = std::nullopt; // Debugger of the instance
+        
+        std::optional<VkSurfaceKHR> surface = std::nullopt;
 
         std::optional<VkPhysicalDevice> physicalDevice = std::nullopt;
-
-        std::optional<VkDevice> logicalDevice = std::nullopt;
-
-        std::optional<VkSurfaceKHR> surface = std::nullopt;
+        
+        std::optional<VkSampleCountFlagBits> maxSamplesFlag;
 
         std::optional<QueueSetup> queues = std::nullopt;
 
         std::optional<SwapChainSupport> swapChainSupport = std::nullopt;
-        
+
+        std::optional<VkDevice> logicalDevice = std::nullopt;
+
         std::optional<VkQueue> graphicsQueue;
         std::optional<VkQueue> presentQueue;
         std::optional<VkQueue> transferQueue;
@@ -160,15 +175,17 @@ namespace fhope {
         std::vector<VkImageView>      swapChainImageViews;
 
         std::optional<VkDescriptorSetLayout> uniformLayout;
+        
+        std::optional<CommandPools> commandPools;
+        
+        std::optional<ViewableImage> colorImage;
+
+        std::optional<DepthBuffer> depthBuffer;
 
         std::optional<GraphicsPipelineConfig> graphicsPipelineConfig;
 
         std::vector<VkFramebuffer> swapChainFramebuffers;
 
-        std::optional<CommandPools> commandPools;
-
-        std::optional<DepthBuffer> depthBuffer;
-        
         std::optional<WrappedTexture> texture;
         std::optional<VkImageView> textureView;
 
@@ -188,23 +205,23 @@ namespace fhope {
 
         std::optional<BaseSyncObjects> syncObjects;
 
-        std::optional<VkSampleCountFlagBits> maxSamplesFlag;
-
-        std::optional<ViewableImage> colorImage;
-
         uint32_t currentFrame = 0;
     };
 
     /***************
      ** CALLBACKS **
      ***************/
-    
+
     // Default dumb error logger for validation layers
     static VKAPI_ATTR VkBool32 debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void *pUserData);
 
     /***************
      ** FUNCTIONS **
      ***************/
+
+        /*------------------------------------*
+         *- FUNCTIONS: dependency management -* 
+         *------------------------------------*/
 
     /**
      * @brief Initializes the engine's dependencies
@@ -217,6 +234,10 @@ namespace fhope {
      * 
      */
     void terminate_dependencies();
+
+        /*-------------------------------*
+         *- FUNCTIONS: setup generation -*
+         *-------------------------------*/
 
     InstanceSetup generate_vulkan_setup(GLFWwindow *window, std::string appName, std::tuple<uint32_t, uint32_t, uint32_t> appVersion, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename, const std::string &textureFilename, const std::string &modelFilename);
 
@@ -236,95 +257,107 @@ namespace fhope {
 
     bool is_physical_device_suitable(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
 
-    int32_t score_physical_device(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+    QueueSetup find_queue_families(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
 
     bool check_physical_device_extension_support(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
 
-    QueueSetup find_queue_families(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
-
     SwapChainSupport check_swap_chain_support(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    int32_t score_physical_device(const InstanceSetup &setup, const VkPhysicalDevice &physicalDevice);
+
+    VkSampleCountFlagBits get_max_multisampling_level(const InstanceSetup &setup);
 
     VkDevice create_logical_device(InstanceSetup *setup);
 
     SwapChainConfig prepare_swap_chain_config(const InstanceSetup &setup, GLFWwindow *window);
 
     VkSwapchainKHR create_swap_chain(const InstanceSetup &setup, GLFWwindow *window);
-    
+
     std::vector<VkImage> retrieve_swap_chain_images(const InstanceSetup &setup);
 
     std::vector<VkImageView> create_swap_chain_image_views(const InstanceSetup &setup);
 
-    shaderc::SpvCompilationResult compile_shader(const std::string &filename, const shaderc_shader_kind &shaderKind);
-
-    VkShaderModule create_shader_module(const InstanceSetup &setup, const shaderc::SpvCompilationResult &compiledShader);
-    
-    VkRenderPass create_render_pass(const InstanceSetup &setup);
-
     VkDescriptorSetLayout create_descriptor_set_layout(const InstanceSetup &setup);
-
-    GraphicsPipelineConfig create_graphics_pipeline(const InstanceSetup &setup, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
-
-    std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
 
     CommandPools create_command_pool(const InstanceSetup &setup);
 
+    ViewableImage create_color_image(const InstanceSetup &setup);
+
+    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkSampleCountFlagBits flags, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage);
+    
+    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format, uint32_t mipLevels);
+    
     DepthBuffer create_depth_buffer(const InstanceSetup &setup);
-
+    
     std::vector<VkFormat> find_supported_formats(const InstanceSetup &setup, const std::vector<VkFormat> &candidates, const VkImageTiling &tiling, const VkFormatFeatureFlags &features);
-
-    WrappedBuffer create_buffer(const InstanceSetup &setup, VkDeviceSize sizeInBytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
-
+    
+    GraphicsPipelineConfig create_graphics_pipeline(const InstanceSetup &setup, const std::string &vertexShaderFilename, const std::string &fragmentShaderFilename);
+    
+    VkShaderModule create_shader_module(const InstanceSetup &setup, const shaderc::SpvCompilationResult &compiledShader);
+    
+    VkRenderPass create_render_pass(const InstanceSetup &setup);
+    
+    std::vector<VkFramebuffer> create_framebuffers(const InstanceSetup &setup);
+    
+    WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilname);
+    
     void copy_buffer(const InstanceSetup &setup, const WrappedBuffer &source, WrappedBuffer *dest);
-
+    
+    WrappedBuffer create_buffer(const InstanceSetup &setup, VkDeviceSize sizeInBytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+    
+    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout, uint32_t mipLevels);
+    
+    VkCommandBuffer begin_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool);
+    
+    void end_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool, const VkQueue &selectedQueue, VkCommandBuffer *osCommandBuffer);
+    
+    VkSampler create_texture_sampler(const InstanceSetup &setup, std::optional<uint32_t> mipLevels);
+    
+    void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t width, uint32_t height);
+    
+    void generate_mipmaps(const InstanceSetup &setup, const VkImage &image, const VkFormat &format, int width, int height, uint32_t mipLevels);
+    
     WrappedBuffer create_vertex_buffer(const InstanceSetup &setup, const std::vector<Vertex3D> &vertices);
-
+    
     WrappedBuffer create_index_buffer(const InstanceSetup &setup, const std::vector<uint32_t> &indices);
     
     std::vector<WrappedBuffer> create_uniform_buffers(const InstanceSetup &setup);
-
-    VkDescriptorPool create_descriptor_pool(const InstanceSetup &setup);
-
-    std::vector<VkDescriptorSet> create_descriptor_sets(const InstanceSetup &setup);
-
-    std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup);
-
-    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex, size_t currentFrame);
-
-    BaseSyncObjects create_base_sync_objects(const InstanceSetup &setup);
-
-    void update_uniform_buffer(const InstanceSetup &setup, size_t frame);
-
-    WrappedTexture create_texture_from_image(const InstanceSetup &setup, const std::string &textureFilname);
-
-    WrappedTexture create_texture(const InstanceSetup &setup, int width, int height, VkSampleCountFlagBits flags, uint32_t mipLevels, VkFormat depthFormat, VkImageUsageFlags usage);
-
-    VkImageView create_texture_image_view(const InstanceSetup &setup, const WrappedTexture &texture, const VkFormat &format, uint32_t mipLevels);
-
-    void generate_mipmaps(const InstanceSetup &setup, const VkImage &image, const VkFormat &format, int width, int height, uint32_t mipLevels);
-
-    VkSampler create_texture_sampler(const InstanceSetup &setup, std::optional<uint32_t> mipLevels);
-
-    VkCommandBuffer begin_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool);
-
-    void end_one_shot_command(const InstanceSetup &setup, const VkCommandPool &selectedPool, const VkQueue &selectedQueue, VkCommandBuffer *osCommandBuffer);
-
-    void transition_image_layout(const InstanceSetup &setup, WrappedTexture *texture, const VkFormat &format, const VkImageLayout &oldLayout, const VkImageLayout &newLayout, uint32_t mipLevels);
-
-    void copy_buffer_to_image(const InstanceSetup &setup, const WrappedBuffer &dataSource, VkImage *image, uint32_t width, uint32_t height);
-   
-    VkSampleCountFlagBits get_max_multisampling_level(const InstanceSetup &setup);
     
-    ViewableImage create_color_image(const InstanceSetup &setup);
-
-    void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
-
-    void cleanup_swap_chain(const InstanceSetup &setup);
-
-    void recreate_swap_chain(InstanceSetup *setup, GLFWwindow *window);
-
-    uint32_t find_memory_type(const VkPhysicalDevice &device, uint32_t typeFilter, const VkMemoryPropertyFlags &properties);
-
-    LoadedModel load_model(const std::string &filename);
-
+    VkDescriptorPool create_descriptor_pool(const InstanceSetup &setup);
+    
+    std::vector<VkDescriptorSet> create_descriptor_sets(const InstanceSetup &setup);
+    
+    std::vector<VkCommandBuffer> create_command_buffers(const InstanceSetup &setup);
+    
+    BaseSyncObjects create_base_sync_objects(const InstanceSetup &setup);
+    
+    /*----------------------------*
+     *- FUNCTIONS: setup cleanup -*
+     *----------------------------*/
+   
     void clean_setup(const InstanceSetup &setup);
+    
+    void cleanup_swap_chain(const InstanceSetup &setup);
+   
+    /*----------------------------*
+     *- FUNCTIONS: setup drawing -*
+     *----------------------------*/
+    
+    void draw_frame(InstanceSetup *setup, GLFWwindow *window, size_t *currentFrame);
+    
+    void recreate_swap_chain(InstanceSetup *setup, GLFWwindow *window);
+    
+    void update_uniform_buffer(const InstanceSetup &setup, size_t frame);
+    
+    void record_command_buffer(const InstanceSetup &setup, const VkCommandBuffer &commandBuffer, uint32_t imageIndex, size_t currentFrame);
+  
+    /*---------------------*
+     *- FUNCTIONS: helper -*
+     *---------------------*/
+ 
+    LoadedModel load_model(const std::string &filename);
+    
+    uint32_t find_memory_type(const VkPhysicalDevice &device, uint32_t typeFilter, const VkMemoryPropertyFlags &properties);
+    
+    shaderc::SpvCompilationResult compile_shader(const std::string &filename, const shaderc_shader_kind &shaderKind);
 }
